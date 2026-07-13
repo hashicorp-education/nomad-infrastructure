@@ -1,0 +1,24 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# CNI plugins role tasks
+
+- name: Check if CNI plugins directory exists
+  ansible.builtin.stat:
+    path: "{{ cni_plugins_path }}"
+  register: cni_plugins_dir_stat
+
+- name: Install CNI plugins
+  ansible.builtin.import_tasks: install.yaml
+  when: not cni_plugins_dir_stat.stat.exists
+
+- name: Write CNI configuration files
+  become: true
+  ansible.builtin.copy:
+    content: "{{ item.content }}"
+    dest: "{{ cni_plugins_config_path }}/{{ item.name }}"
+    mode: "0644"
+  loop: "{{ cni_configs }}"
+  when: cni_configs | length > 0
+
+

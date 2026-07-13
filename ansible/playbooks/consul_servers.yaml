@@ -1,0 +1,79 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook: consul_servers.yaml
+# Description: Install Docker and configure Consul v2.x server agents on the
+#              [servers] group from the Terraform-generated inventory.ini.
+# Requirements:
+#   - Ansible 2.14+
+#   - geerlingguy.docker role (ansible-galaxy install -r requirements.yaml)
+#   - Target hosts: Ubuntu 20.04+ (Debian family)
+# Variables:
+#   - consul_binary_version: Consul release to install (default: 2.0.1)
+#   - consul_datacenter: Consul datacenter name (default: dc1)
+#   - consul_cloud_auto_join_enabled: enable AWS auto-join (default: true here)
+#   - consul_acl_enabled: enable ACLs (default: false)
+#   - consul_tls_enabled: enable TLS (default: false)
+# Usage:
+#   ansible-playbook -i inventory.ini consul_servers.yaml
+#   ansible-playbook -i inventory.ini consul_servers.yaml --tags consul_config
+
+- name: Configure Consul servers
+  hosts: servers
+  become: true
+  gather_facts: true
+
+  vars:
+    # --- Consul role variables ---
+    consul_server_enabled: true
+    consul_server_bootstrap_expect: "{{ groups['servers'] | length }}"
+    consul_node_name: "consul-server-{{ groups['servers'].index(inventory_hostname) + 1 }}"
+    consul_datacenter: "dc1"
+    consul_log_level: "INFO"
+    consul_ui_enabled: true
+    # Cloud auto-join using the AutoJoinRole tag created by Terraform
+    consul_cloud_auto_join_enabled: true
+    consul_cloud_auto_join_tag_key: "AutoJoinRole"
+    consul_cloud_auto_join_tag_value: "server"
+    # ACL enabled; run consul_acl_bootstrap.yaml after first deploy to get the management token
+    consul_acl_enabled: true
+    consul_tls_enabled: false
+    consul_connect_enabled: false
+
+  roles:
+  - role: common
+    vars:
+      common_hostname: "{{ inventory_hostname }}"
+
+  # Install Docker on every node before Consul
+  - role: geerlingguy.docker
+    become: true
+    vars:
+      docker_users:
+      - "{{ ansible_user }}"
+
+  - role: helper
+    vars:
+      helper_apt_packages:
+      - jq
+      - net-tools
+      - unzip
+      - nano
+      - curl
+
+  - role: consul
+
+  post_tasks:
+  - name: Wait for Consul HTTP API to be ready
+    ansible.builtin.wait_for:
+      host: "127.0.0.1"
+      port: 8500
+      delay: 5
+      timeout: 60
+      state: started
+
+  - name: Display Consul server status
+    ansible.builtin.debug:
+      msg:
+      - "Consul server configured on {{ inventory_hostname }}"
+      - "HTTP UI available at http://{{ ansible_host }}:8500/ui"

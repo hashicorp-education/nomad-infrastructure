@@ -1,0 +1,330 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# teardown.yaml
+#
+# Reverses everything installed by the Ansible playbooks in this repository.
+# Runs in reverse dependency order:
+#   1. Nomad      (servers then clients, all nodes)
+#   2. Consul     (all nodes)
+#   3. dnsmasq    (all nodes) — restores systemd-resolved and /etc/resolv.conf
+#   4. CNI        (clients only)
+#   5. Docker     (clients only)
+#   6. Common     (all nodes) — restores NTP, removes installed packages
+#
+# WARNING: This playbook is destructive and irreversible.
+# All service data, configuration, and logs are permanently removed.
+# Run 'terraform destroy' separately to remove AWS infrastructure.
+
+# ── Play 1: Stop and remove Nomad ─────────────────────────────────────────────
+- name: Remove Nomad
+  hosts: all
+  gather_facts: true
+  become: true
+  tasks:
+  - name: Stop and disable Nomad service
+    ansible.builtin.systemd_service:
+      name: nomad
+      state: stopped
+      enabled: false
+    failed_when: false
+    tags: teardown_nomad
+
+  - name: Remove Nomad systemd unit file
+    ansible.builtin.file:
+      path: /etc/systemd/system/nomad.service
+      state: absent
+    tags: teardown_nomad
+
+  - name: Reload systemd daemon after removing Nomad unit
+    ansible.builtin.systemd:
+      daemon_reload: true
+    tags: teardown_nomad
+
+  - name: Remove Nomad binary
+    ansible.builtin.file:
+      path: /usr/local/bin/nomad
+      state: absent
+    tags: teardown_nomad
+
+  - name: Remove Nomad configuration directory
+    ansible.builtin.file:
+      path: /etc/nomad.d
+      state: absent
+    tags: teardown_nomad
+
+  - name: Remove Nomad data and plugin directories
+    ansible.builtin.file:
+      path: /opt/nomad
+      state: absent
+    tags: teardown_nomad
+
+  - name: Remove Nomad log file
+    ansible.builtin.file:
+      path: /var/log/nomad.log
+      state: absent
+    tags: teardown_nomad
+
+# ── Play 2: Stop and remove Consul ────────────────────────────────────────────
+- name: Remove Consul
+  hosts: all
+  gather_facts: true
+  become: true
+  tasks:
+  - name: Stop and disable Consul service
+    ansible.builtin.systemd_service:
+      name: consul
+      state: stopped
+      enabled: false
+    failed_when: false
+    tags: teardown_consul
+
+  - name: Remove Consul systemd unit file
+    ansible.builtin.file:
+      path: /etc/systemd/system/consul.service
+      state: absent
+    tags: teardown_consul
+
+  - name: Reload systemd daemon after removing Consul unit
+    ansible.builtin.systemd:
+      daemon_reload: true
+    tags: teardown_consul
+
+  - name: Remove Consul binary
+    ansible.builtin.file:
+      path: /usr/local/bin/consul
+      state: absent
+    tags: teardown_consul
+
+  - name: Remove Consul configuration directory
+    ansible.builtin.file:
+      path: /etc/consul.d
+      state: absent
+    tags: teardown_consul
+
+  - name: Remove Consul data directory
+    ansible.builtin.file:
+      path: /opt/consul
+      state: absent
+    tags: teardown_consul
+
+  - name: Remove Consul log directory
+    ansible.builtin.file:
+      path: /var/log/consul
+      state: absent
+    tags: teardown_consul
+
+  - name: Remove Consul run directory
+    ansible.builtin.file:
+      path: /run/consul
+      state: absent
+    tags: teardown_consul
+
+  - name: Remove consul system user
+    ansible.builtin.user:
+      name: consul
+      state: absent
+    failed_when: false
+    tags: teardown_consul
+
+  - name: Remove consul system group
+    ansible.builtin.group:
+      name: consul
+      state: absent
+    failed_when: false
+    tags: teardown_consul
+
+# ── Play 3: Remove dnsmasq and restore system DNS ─────────────────────────────
+- name: Remove dnsmasq and restore systemd-resolved
+  hosts: all
+  gather_facts: true
+  become: true
+  tasks:
+  - name: Stop and disable dnsmasq
+    ansible.builtin.systemd_service:
+      name: dnsmasq
+      state: stopped
+      enabled: false
+    failed_when: false
+    tags: teardown_dnsmasq
+
+  - name: Remove Consul DNS forwarding rule
+    ansible.builtin.file:
+      path: /etc/dnsmasq.d/10-consul
+      state: absent
+    tags: teardown_dnsmasq
+
+  - name: Remove dnsmasq main configuration
+    ansible.builtin.file:
+      path: /etc/dnsmasq.conf
+      state: absent
+    tags: teardown_dnsmasq
+
+  - name: Remove dnsmasq package
+    ansible.builtin.apt:
+      name: dnsmasq
+      state: absent
+      purge: true
+      autoremove: true
+    tags: teardown_dnsmasq
+
+  - name: Remove systemd-resolved stub listener override
+    ansible.builtin.file:
+      path: /etc/systemd/resolved.conf.d/no-stub.conf
+      state: absent
+    tags: teardown_dnsmasq
+
+  - name: Restart systemd-resolved to re-enable stub listener
+    ansible.builtin.systemd_service:
+      name: systemd-resolved
+      state: restarted
+    tags: teardown_dnsmasq
+
+  - name: Restore /etc/resolv.conf as symlink to systemd-resolved stub
+    # The dnsmasq role replaced the symlink with a regular file.
+    # Remove the regular file and restore the standard Ubuntu symlink.
+    ansible.builtin.file:
+      path: /etc/resolv.conf
+      state: absent
+    tags: teardown_dnsmasq
+
+  - name: Symlink /etc/resolv.conf back to systemd-resolved stub
+    ansible.builtin.file:
+      src: /run/systemd/resolve/stub-resolv.conf
+      dest: /etc/resolv.conf
+      state: link
+      force: true
+    tags: teardown_dnsmasq
+
+# ── Play 4: Remove CNI plugins (clients only) ─────────────────────────────────
+- name: Remove CNI plugins
+  hosts: clients
+  gather_facts: false
+  become: true
+  tasks:
+  - name: Remove CNI plugins and config directories
+    ansible.builtin.file:
+      path: /opt/cni
+      state: absent
+    tags: teardown_cni
+
+# ── Play 5: Remove Docker (clients only) ──────────────────────────────────────
+- name: Remove Docker
+  hosts: clients
+  gather_facts: true
+  become: true
+  tasks:
+  - name: Stop and disable Docker service
+    ansible.builtin.systemd_service:
+      name: docker
+      state: stopped
+      enabled: false
+    failed_when: false
+    tags: teardown_docker
+
+  - name: Stop and disable containerd service
+    ansible.builtin.systemd_service:
+      name: containerd
+      state: stopped
+      enabled: false
+    failed_when: false
+    tags: teardown_docker
+
+  - name: Remove Docker packages
+    ansible.builtin.apt:
+      name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+      state: absent
+      purge: true
+      autoremove: true
+    failed_when: false
+    tags: teardown_docker
+
+  - name: Remove Docker GPG keyring
+    ansible.builtin.file:
+      path: /etc/apt/keyrings/docker.gpg
+      state: absent
+    tags: teardown_docker
+
+  - name: Remove Docker apt source list
+    ansible.builtin.file:
+      path: /etc/apt/sources.list.d/docker.list
+      state: absent
+    tags: teardown_docker
+
+  - name: Remove /var/lib/docker data directory
+    ansible.builtin.file:
+      path: /var/lib/docker
+      state: absent
+    tags: teardown_docker
+
+  - name: Remove /var/lib/containerd data directory
+    ansible.builtin.file:
+      path: /var/lib/containerd
+      state: absent
+    tags: teardown_docker
+
+# ── Play 6: Remove common packages and restore NTP ────────────────────────────
+- name: Remove common packages and restore NTP
+  hosts: all
+  gather_facts: false
+  become: true
+  tasks:
+  - name: Re-enable NTP via timedatectl
+    ansible.builtin.command: timedatectl set-ntp yes
+    changed_when: true
+    failed_when: false
+    tags: teardown_common
+
+  - name: Remove packages installed by the common role
+    ansible.builtin.apt:
+      name:
+      - jq
+      - net-tools
+      - ntp
+      - unzip
+      - curl
+      - wget
+      state: absent
+      autoremove: true
+    tags: teardown_common
+
+# ── Play 7: Remove bootstrap token files from the control machine ─────────────
+- name: Remove bootstrap token files from the playbook directory
+  hosts: localhost
+  gather_facts: false
+  become: false
+  connection: local
+  tasks:
+  - name: Remove bootstrap token files
+    ansible.builtin.file:
+      path: "{{ playbook_dir }}/tokens/{{ item }}"
+      state: absent
+    no_log: true
+    loop:
+    - consul-bootstrap-token-output.txt
+    - consul-bootstrap-secret-id.txt
+    - nomad-bootstrap-token-output.txt
+    - nomad-bootstrap-secret-id.txt
+    - nomad-consul-server-token-output.txt
+    - nomad-consul-server-secret-id.txt
+    - nomad-consul-client-token-output.txt
+    - nomad-consul-client-secret-id.txt
+    tags: teardown_tokens
+
+# ── Play 8: Remove TLS certificates from the control machine ──────────────────
+- name: Remove TLS certificates from the control machine
+  hosts: localhost
+  gather_facts: false
+  become: false
+  connection: local
+  tasks:
+  - name: Remove TLS certificate directory
+    ansible.builtin.file:
+      path: "{{ playbook_dir }}/.tls"
+      state: absent
+    tags: teardown_tls

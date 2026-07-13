@@ -1,0 +1,107 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# dnsmasq role tasks
+#
+# Installs dnsmasq and configures it to forward .consul DNS queries to the
+# local Consul agent (port 8600) while forwarding all other queries to the
+# configured upstream resolvers.
+#
+# On Ubuntu/Debian, systemd-resolved occupies port 53 by default.  This role
+# disables the resolved stub listener so dnsmasq can bind to port 53.
+
+- name: Install dnsmasq
+  become: true
+  ansible.builtin.package:
+    name: "{{ dnsmasq_package }}"
+    state: present
+  tags: dnsmasq_install
+
+# ── systemd-resolved: disable stub listener ───────────────────────────────────
+
+- name: Create systemd-resolved override directory
+  become: true
+  ansible.builtin.file:
+    path: /etc/systemd/resolved.conf.d
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+  when: dnsmasq_disable_resolved_stub | bool
+  tags: dnsmasq_resolved
+
+- name: Disable systemd-resolved DNS stub listener
+  become: true
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (dnsmasq role).
+      # Disables the stub listener so dnsmasq can bind to port 53.
+      [Resolve]
+      DNSStubListener=no
+    dest: /etc/systemd/resolved.conf.d/no-stub.conf
+    mode: "0644"
+    owner: root
+    group: root
+  when: dnsmasq_disable_resolved_stub | bool
+  notify: Restart systemd-resolved
+  tags: dnsmasq_resolved
+
+# ── dnsmasq configuration ─────────────────────────────────────────────────────
+
+- name: Ensure dnsmasq.d directory exists
+  become: true
+  ansible.builtin.file:
+    path: "{{ dnsmasq_conf_dir }}"
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+  tags: dnsmasq_config
+
+- name: Write main dnsmasq configuration
+  become: true
+  ansible.builtin.template:
+    src: dnsmasq.conf.j2
+    dest: "{{ dnsmasq_conf_file }}"
+    mode: "0644"
+    owner: root
+    group: root
+  notify: Restart dnsmasq
+  tags: dnsmasq_config
+
+- name: Write Consul DNS forwarding configuration
+  become: true
+  ansible.builtin.template:
+    src: 10-consul.j2
+    dest: "{{ dnsmasq_conf_dir }}/10-consul"
+    mode: "0644"
+    owner: root
+    group: root
+  notify: Restart dnsmasq
+  tags: dnsmasq_config
+
+# ── /etc/resolv.conf ─────────────────────────────────────────────────────────
+
+- name: Point /etc/resolv.conf at dnsmasq
+  become: true
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (dnsmasq role).
+      # dnsmasq handles .consul forwarding and upstream resolution.
+      nameserver 127.0.0.1
+    dest: /etc/resolv.conf
+    mode: "0644"
+    owner: root
+    group: root
+  when: dnsmasq_update_resolv_conf | bool
+  tags: dnsmasq_resolv
+
+# ── Service ───────────────────────────────────────────────────────────────────
+
+- name: Ensure dnsmasq is enabled and started
+  become: true
+  ansible.builtin.systemd_service:
+    name: dnsmasq
+    state: started
+    enabled: true
+  tags: dnsmasq_service

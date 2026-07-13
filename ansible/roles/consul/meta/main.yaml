@@ -1,0 +1,25 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Consul role metadata
+
+galaxy_info:
+  role_name: consul
+  author: nomad-infra
+  description: Install and configure a HashiCorp Consul agent (server or client) on Ubuntu/Debian hosts
+  license: MIT
+  min_ansible_version: "2.14"
+
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal    # 20.04
+        - jammy    # 22.04
+        - noble    # 24.04
+
+  galaxy_tags:
+    - consul
+    - hashicorp
+    - servicediscovery
+
+dependencies: []

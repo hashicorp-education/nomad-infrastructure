@@ -1,0 +1,81 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Nomad role default variables
+
+nomad_user: "root"
+nomad_group: "root"
+
+nomad_binary_version: "2.0.4"
+
+# nomad_node_name is written to the name parameter in nomad.hcl.
+# nomad_servers.yaml overrides this to "nomad-server-N" (1-based group index).
+# nomad_clients.yaml overrides this to "nomad-client-N" (1-based group index).
+# Falls back to inventory_hostname when not set by a playbook.
+nomad_node_name: "{{ inventory_hostname }}"
+
+nomad_config_dir: "/etc/nomad.d"
+nomad_data_dir: "/opt/nomad/data"
+nomad_plugin_dir: "/opt/nomad/plugins"
+
+nomad_service_name: "nomad"
+
+# Nomad server configuration
+nomad_server_enabled: false
+nomad_server_bootstrap_expect: 3
+
+# Nomad client configuration
+nomad_client_enabled: false
+nomad_client_servers: []
+
+# ACL configuration
+nomad_acl_enabled: false
+
+# Telemetry configuration
+nomad_telemetry_enabled: false
+nomad_telemetry_prometheus_metrics: false
+
+# Logging configuration
+nomad_log_level: "DEBUG"
+nomad_log_file: "/var/log/nomad.log"
+nomad_log_include_location: false
+nomad_enable_debug: false
+
+# Cloud auto-join configuration (AWS)
+nomad_cloud_auto_join_enabled: false
+nomad_cloud_auto_join_tag_key: "AutoJoinRole"
+nomad_cloud_auto_join_tag_value: "server"
+
+# TLS configuration
+nomad_tls_enabled: false
+
+# Consul integration configuration
+#
+# nomad_consul_integration_enabled: enables the consul { address token } block.
+#   Set to true after running consul_nomad_service_discovery.yaml.
+#
+# nomad_consul_workload_identity_enabled: adds service_identity + task_identity
+#   blocks inside the consul block (Nomad servers only, Nomad 1.7+).
+#   Set to true after running consul_nomad_workload_identity.yaml.
+nomad_consul_integration_enabled: false
+nomad_consul_workload_identity_enabled: false
+
+# Address of the local Consul HTTP API
+nomad_consul_address: "127.0.0.1:8500"
+
+# Consul ACL token for this Nomad agent.
+# For servers: set to the SecretID from nomad-consul-server-secret-id.txt
+# For clients: set to the SecretID from nomad-consul-client-secret-id.txt
+# Leave empty when nomad_consul_integration_enabled is false.
+nomad_consul_agent_token: ""
+
+# Nomad server consul block: default workload identity for service registration.
+# Nomad servers inject this identity into jobs that register Consul services.
+# The audience must match the BoundAudiences in the Consul JWT auth method.
+nomad_consul_service_identity_aud: "consul.io"
+nomad_consul_service_identity_ttl: "1h"
+
+# Nomad server consul block: default workload identity for task data access.
+# Nomad servers inject this identity into tasks that use a consul block.
+nomad_consul_task_identity_aud: "consul.io"
+nomad_consul_task_identity_ttl: "1h"

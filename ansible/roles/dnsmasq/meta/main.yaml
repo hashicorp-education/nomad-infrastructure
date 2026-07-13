@@ -1,0 +1,10 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+galaxy_info:
+  role_name: dnsmasq
+  author: nomad-infra
+  description: Install and configure dnsmasq for Consul DNS forwarding.
+  min_ansible_version: "2.11"
+
+dependencies: []

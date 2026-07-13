@@ -1,0 +1,29 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+# AWS Configuration
+aws_region = "us-east-1"
+
+# Project Configuration
+project_name = "nomad-consul"
+owner        = "your-name" # Replace with your name
+environment  = "dev"
+
+# Network Configuration
+vpc_cidr         = "10.0.0.0/16"
+subnet_cidr      = "10.0.1.0/24"
+allowed_ssh_cidr     = "0.0.0.0/0" # Change this to your IP for better security
+
+
+# AMI Configuration
+ami_owner     = "099720109477" # Canonical
+ami_name_filter     = "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"
+ami_architecture     = "x86_64"
+
+# Instance Configuration
+server_count         = 3
+client_count         = 2
+server_instance_type = "t3.micro"
+client_instance_type = "t3.medium"
+
+# SSH Configuration
+ssh_user = "ubuntu"

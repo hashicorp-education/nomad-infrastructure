@@ -1,0 +1,48 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# HashiCorp release role tasks
+
+- name: Check if {{ hashicorp_release_product_name }} binary exists
+  ansible.builtin.stat:
+    path: "{{ hashicorp_release_product_install_dir }}/{{ hashicorp_release_product_name }}"
+  register: hashicorp_release_binary_stat
+
+- name: Check installed {{ hashicorp_release_product_name }} version
+  ansible.builtin.command: >-
+    {{ hashicorp_release_product_install_dir }}/{{ hashicorp_release_product_name }} version
+  register: hashicorp_release_installed_version
+  when: hashicorp_release_binary_stat.stat.exists
+  changed_when: false
+  failed_when: false
+
+- name: Install {{ hashicorp_release_product_name }}
+  when: >
+    not hashicorp_release_binary_stat.stat.exists or
+    (hashicorp_release_installed_version.stdout is defined and
+    hashicorp_release_product_version|string not in hashicorp_release_installed_version.stdout)
+  block:
+    - name: Download {{ hashicorp_release_product_name }} {{ hashicorp_release_product_version }}
+      ansible.builtin.get_url:
+        url: "{{ hashicorp_release_zip_url }}"
+        dest: "/tmp/{{ hashicorp_release_product_name }}.zip"
+        timeout: 60
+        mode: "0600"
+      become: false
+
+    - name: Unzip {{ hashicorp_release_product_name }}
+      become: true
+      ansible.builtin.unarchive:
+        remote_src: true
+        src: "/tmp/{{ hashicorp_release_product_name }}.zip"
+        dest: "{{ hashicorp_release_product_install_dir }}"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Remove {{ hashicorp_release_product_name }} zip file
+      ansible.builtin.file:
+        path: "/tmp/{{ hashicorp_release_product_name }}.zip"
+        state: absent
+
+

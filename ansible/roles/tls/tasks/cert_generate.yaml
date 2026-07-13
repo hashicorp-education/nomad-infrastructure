@@ -1,0 +1,55 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Generate individual certificates signed by CA
+
+- name: Generate certificate for {{ item['agent-name'] }}
+  delegate_to: 127.0.0.1
+  become: false
+  block:
+    - name: Create private key for {{ item['agent-name'] }}
+      community.crypto.openssl_privatekey:
+        path: "{{ tls_path }}/{{ item['agent-name'] }}-key.pem"
+        mode: "0600"
+
+    - name: Create CSR for {{ item['agent-name'] }}
+      community.crypto.openssl_csr_pipe:
+        privatekey_path: "{{ tls_path }}/{{ item['agent-name'] }}-key.pem"
+        subject_alt_name:
+          - "IP:127.0.0.1"
+          - "IP:{{ item['ip'] }}"
+          - "IP:{{ ansible_host }}"
+          - "DNS:localhost"
+          - "DNS:{{ item['dns'] }}"
+      register: tls_csr
+
+    - name: Check if certificate exists for {{ item['agent-name'] }}
+      ansible.builtin.stat:
+        path: "{{ tls_path }}/{{ item['agent-name'] }}.pem"
+      register: tls_certificate_exists
+
+    - name: Read existing certificate for {{ item['agent-name'] }}
+      ansible.builtin.slurp:
+        src: "{{ tls_path }}/{{ item['agent-name'] }}.pem"
+      when: tls_certificate_exists.stat.exists
+      register: tls_certificate
+
+    - name: Sign certificate for {{ item['agent-name'] }}
+      community.crypto.x509_certificate_pipe:
+        content: "{{ (tls_certificate.content | b64decode) if tls_certificate_exists.stat.exists else omit }}"
+        csr_content: "{{ tls_csr.csr }}"
+        provider: ownca
+        ownca_path: "{{ tls_path }}/{{ tls_ca_pem_filename }}"
+        ownca_privatekey_path: "{{ tls_path }}/{{ tls_ca_key_filename }}"
+        ownca_not_after: +365d
+        ownca_not_before: "-1d"
+      register: tls_signed_certificate
+
+    - name: Write signed certificate for {{ item['agent-name'] }}
+      ansible.builtin.copy:
+        dest: "{{ tls_path }}/{{ item['agent-name'] }}.pem"
+        content: "{{ tls_signed_certificate.certificate }}"
+        mode: "0644"
+      when: tls_signed_certificate is changed
+
+

@@ -1,0 +1,14 @@
+{# Copyright (c) HashiCorp, Inc. #}
+{# SPDX-License-Identifier: MPL-2.0 #}
+# Consul DNS forwarding configuration for dnsmasq
+# Managed by Ansible — do not edit manually
+#
+# Forward all .consul domain queries to the local Consul agent DNS server.
+# Reference: https://developer.hashicorp.com/consul/docs/manage/dns/forwarding/enable
+
+server=/{{ consul_domain | default('consul') }}/{{ consul_dns_address }}#{{ consul_dns_port }}
+
+# Reverse DNS for RFC 1918 networks — Consul handles PTR lookups for these ranges
+{% for network in dnsmasq_consul_rev_networks %}
+rev-server={{ network }},{{ consul_dns_address }}#{{ consul_dns_port }}
+{% endfor %}

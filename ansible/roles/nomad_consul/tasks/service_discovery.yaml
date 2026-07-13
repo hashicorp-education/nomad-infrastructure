@@ -1,0 +1,193 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# nomad_consul role tasks — service discovery
+#
+# Creates the Consul ACL policies and tokens that allow Nomad agents to register
+# services and perform health checks via the Consul API.  The Nomad agent consul
+# block (address + token) is written by the nomad role separately.
+#
+# Idempotency is guarded by nomad_consul_sd_bootstrapped_file on the first server.
+
+# ── Idempotency check ──────────────────────────────────────────────────────────
+
+- name: Check if Consul-Nomad service discovery is already bootstrapped
+  become: true
+  ansible.builtin.stat:
+    path: "{{ nomad_consul_sd_bootstrapped_file }}"
+  register: nomad_consul_sd_bootstrapped_stat
+  delegate_to: "{{ groups['servers'] | first }}"
+  run_once: true
+
+# ── Bootstrap block ────────────────────────────────────────────────────────────
+
+- name: Bootstrap Consul-Nomad service discovery
+  when: not nomad_consul_sd_bootstrapped_stat.stat.exists
+  run_once: true
+  delegate_to: "{{ groups['servers'] | first }}"
+  block:
+
+    # -- Read bootstrap token from the control machine -------------------------
+
+    - name: Read Consul bootstrap SecretID from local file
+      become: false
+      ansible.builtin.command: "cat {{ nomad_consul_bootstrap_secret_id_file }}"
+      changed_when: false
+      delegate_to: localhost
+      register: nomad_consul_bootstrap_secret_id_out
+
+    - name: Set Consul bootstrap SecretID fact
+      ansible.builtin.set_fact:
+        nomad_consul_bootstrap_secret_id: "{{ nomad_consul_bootstrap_secret_id_out.stdout | trim }}"
+
+    # -- Stage policy files on the server --------------------------------------
+
+    - name: Create staging directory for ACL policy files
+      become: true
+      ansible.builtin.file:
+        path: "{{ nomad_consul_staging_dir }}"
+        state: directory
+        mode: "0700"
+        owner: root
+        group: root
+
+    - name: Copy Nomad server Consul policy file to server
+      become: true
+      ansible.builtin.copy:
+        src: "consul/nomad-server-policy.hcl"
+        dest: "{{ nomad_consul_staging_dir }}/nomad-server-policy.hcl"
+        mode: "0600"
+
+    - name: Copy Nomad client Consul policy file to server
+      become: true
+      ansible.builtin.copy:
+        src: "consul/nomad-client-policy.hcl"
+        dest: "{{ nomad_consul_staging_dir }}/nomad-client-policy.hcl"
+        mode: "0600"
+
+    # -- Create Consul ACL policies --------------------------------------------
+
+    - name: Create Consul ACL policy for Nomad servers
+      become: true
+      ansible.builtin.command: >-
+        {{ nomad_consul_bin_path }} acl policy create
+        -name "{{ nomad_consul_server_policy_name }}"
+        -description "{{ nomad_consul_server_policy_description }}"
+        -rules "@{{ nomad_consul_staging_dir }}/nomad-server-policy.hcl"
+      environment:
+        CONSUL_HTTP_TOKEN: "{{ nomad_consul_bootstrap_secret_id }}"
+        CONSUL_HTTP_ADDR: "{{ nomad_consul_http_addr }}"
+      register: nomad_consul_server_policy_result
+      changed_when: nomad_consul_server_policy_result.rc == 0
+      failed_when:
+        - nomad_consul_server_policy_result.rc != 0
+        - '"already exists" not in nomad_consul_server_policy_result.stderr'
+
+    - name: Create Consul ACL policy for Nomad clients
+      become: true
+      ansible.builtin.command: >-
+        {{ nomad_consul_bin_path }} acl policy create
+        -name "{{ nomad_consul_client_policy_name }}"
+        -description "{{ nomad_consul_client_policy_description }}"
+        -rules "@{{ nomad_consul_staging_dir }}/nomad-client-policy.hcl"
+      environment:
+        CONSUL_HTTP_TOKEN: "{{ nomad_consul_bootstrap_secret_id }}"
+        CONSUL_HTTP_ADDR: "{{ nomad_consul_http_addr }}"
+      register: nomad_consul_client_policy_result
+      changed_when: nomad_consul_client_policy_result.rc == 0
+      failed_when:
+        - nomad_consul_client_policy_result.rc != 0
+        - '"already exists" not in nomad_consul_client_policy_result.stderr'
+
+    # -- Create Consul ACL tokens and save locally ----------------------------
+
+    - name: Create Consul ACL token for Nomad server agents
+      become: true
+      ansible.builtin.command: >-
+        {{ nomad_consul_bin_path }} acl token create
+        -description "{{ nomad_consul_server_token_description }}"
+        -policy-name "{{ nomad_consul_server_policy_name }}"
+      environment:
+        CONSUL_HTTP_TOKEN: "{{ nomad_consul_bootstrap_secret_id }}"
+        CONSUL_HTTP_ADDR: "{{ nomad_consul_http_addr }}"
+      changed_when: true
+      no_log: true
+      register: nomad_consul_server_token_raw
+
+    - name: Save Nomad server Consul token output to local file
+      become: false
+      ansible.builtin.copy:
+        content: "{{ nomad_consul_server_token_raw.stdout }}"
+        dest: "{{ nomad_consul_server_token_output_path }}"
+        mode: "0600"
+      delegate_to: localhost
+
+    - name: Extract Nomad server Consul SecretID from saved file
+      become: false
+      ansible.builtin.shell: >-
+        awk '/SecretID/ {print $2}'
+        {{ nomad_consul_server_token_output_path }}
+      changed_when: false
+      delegate_to: localhost
+      register: nomad_consul_server_secret_id_out
+
+    - name: Write Nomad server Consul SecretID to local file
+      become: false
+      ansible.builtin.copy:
+        content: "{{ nomad_consul_server_secret_id_out.stdout | trim }}"
+        dest: "{{ nomad_consul_server_secret_id_path }}"
+        mode: "0600"
+      delegate_to: localhost
+
+    - name: Create Consul ACL token for Nomad client agents
+      become: true
+      ansible.builtin.command: >-
+        {{ nomad_consul_bin_path }} acl token create
+        -description "{{ nomad_consul_client_token_description }}"
+        -policy-name "{{ nomad_consul_client_policy_name }}"
+      environment:
+        CONSUL_HTTP_TOKEN: "{{ nomad_consul_bootstrap_secret_id }}"
+        CONSUL_HTTP_ADDR: "{{ nomad_consul_http_addr }}"
+      changed_when: true
+      no_log: true
+      register: nomad_consul_client_token_raw
+
+    - name: Save Nomad client Consul token output to local file
+      become: false
+      ansible.builtin.copy:
+        content: "{{ nomad_consul_client_token_raw.stdout }}"
+        dest: "{{ nomad_consul_client_token_output_path }}"
+        mode: "0600"
+      delegate_to: localhost
+
+    - name: Extract Nomad client Consul SecretID from saved file
+      become: false
+      ansible.builtin.shell: >-
+        awk '/SecretID/ {print $2}'
+        {{ nomad_consul_client_token_output_path }}
+      changed_when: false
+      delegate_to: localhost
+      register: nomad_consul_client_secret_id_out
+
+    - name: Write Nomad client Consul SecretID to local file
+      become: false
+      ansible.builtin.copy:
+        content: "{{ nomad_consul_client_secret_id_out.stdout | trim }}"
+        dest: "{{ nomad_consul_client_secret_id_path }}"
+        mode: "0600"
+      delegate_to: localhost
+
+    # -- Cleanup and sentinel --------------------------------------------------
+
+    - name: Remove ACL policy staging directory from server
+      become: true
+      ansible.builtin.file:
+        path: "{{ nomad_consul_staging_dir }}"
+        state: absent
+
+    - name: Write Consul-Nomad service discovery bootstrapped sentinel file
+      become: true
+      ansible.builtin.copy:
+        content: "Consul-Nomad service discovery bootstrapped on {{ now(fmt='%Y-%m-%d %H:%M:%S %Z') }}.\n"
+        dest: "{{ nomad_consul_sd_bootstrapped_file }}"
+        mode: "0644"

@@ -1,0 +1,126 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Consul role tasks
+
+- name: Create consul system group
+  become: true
+  ansible.builtin.group:
+    name: "{{ consul_group }}"
+    system: true
+    state: present
+  when: consul_manage_group | bool
+  tags: consul_user
+
+- name: Create consul system user
+  become: true
+  ansible.builtin.user:
+    name: "{{ consul_user }}"
+    group: "{{ consul_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    state: present
+  when: consul_manage_user | bool
+  tags: consul_user
+
+- name: Install Consul binary
+  ansible.builtin.include_role:
+    name: hashicorp_release
+  vars:
+    hashicorp_release_product_name: "consul"
+    hashicorp_release_product_version: "{{ consul_binary_version }}"
+  tags: consul_install
+
+- name: Create Consul configuration directory
+  become: true
+  ansible.builtin.file:
+    path: "{{ consul_config_dir }}"
+    state: directory
+    mode: "0750"
+    owner: "{{ consul_user }}"
+    group: "{{ consul_group }}"
+  tags: consul_config
+
+- name: Create Consul data directory
+  become: true
+  ansible.builtin.file:
+    path: "{{ consul_data_dir }}"
+    state: directory
+    mode: "0750"
+    owner: "{{ consul_user }}"
+    group: "{{ consul_group }}"
+  tags: consul_config
+
+- name: Create Consul log directory
+  become: true
+  ansible.builtin.file:
+    path: "{{ consul_log_dir }}"
+    state: directory
+    mode: "0750"
+    owner: "{{ consul_user }}"
+    group: "{{ consul_group }}"
+  tags: consul_config
+
+- name: Create Consul run directory
+  become: true
+  ansible.builtin.file:
+    path: "{{ consul_run_path }}"
+    state: directory
+    mode: "0750"
+    owner: "{{ consul_user }}"
+    group: "{{ consul_group }}"
+  tags: consul_config
+
+- name: Create Consul TLS directory
+  become: true
+  ansible.builtin.file:
+    path: "{{ consul_tls_dir }}"
+    state: directory
+    mode: "0750"
+    owner: "{{ consul_user }}"
+    group: "{{ consul_group }}"
+  when: consul_tls_enabled
+  tags: consul_tls
+
+- name: Write Consul configuration file
+  become: true
+  no_log: "{{ consul_gossip_encryption_enabled | bool }}"
+  ansible.builtin.template:
+    src: consul.hcl.j2
+    dest: "{{ consul_config_dir }}/consul.hcl"
+    owner: "{{ consul_user }}"
+    group: "{{ consul_group }}"
+    mode: "0640"
+  notify: Restart consul
+  tags: consul_config
+
+- name: Validate Consul configuration
+  become: true
+  ansible.builtin.command: /usr/local/bin/consul validate {{ consul_config_dir }}
+  changed_when: false
+  tags: consul_validate
+
+- name: Write Consul systemd service file
+  become: true
+  ansible.builtin.template:
+    src: consul.service.j2
+    dest: "/etc/systemd/system/{{ consul_service_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Enable consul
+  tags: consul_service
+
+- name: Flush handlers to reload systemd before starting consul
+  ansible.builtin.meta: flush_handlers
+
+- name: Ensure Consul service is started and enabled
+  become: true
+  ansible.builtin.systemd_service:
+    name: "{{ consul_service_name }}"
+    state: started
+    enabled: true
+  tags: consul_service

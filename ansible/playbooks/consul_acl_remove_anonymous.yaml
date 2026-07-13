@@ -1,0 +1,100 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook to remove all policies from the Consul anonymous token
+#
+# The anonymous token (SecretID: "anonymous", AccessorID: 00000000-0000-0000-0000-000000000000)
+# cannot be deleted — it is a built-in Consul token. This playbook strips all policies and
+# roles from it so that unauthenticated requests have no permissions.
+#
+# Prerequisites:
+#   - Consul ACL system bootstrapped (consul_acl_bootstrap.yaml completed)
+#   - consul-bootstrap-secret-id.txt present in the playbook directory
+#
+# Usage:
+#   ansible-playbook -i inventory.ini consul_acl_remove_anonymous.yaml
+#
+# Idempotent: re-running is safe; the token already has no policies after the first run.
+
+- name: Remove all policies from Consul anonymous token
+  hosts: servers[0]
+  gather_facts: false
+
+  vars:
+    consul_bin_path: "/usr/local/bin/consul"
+    consul_http_addr: "http://127.0.0.1:8500"
+    consul_anonymous_accessor_id: "00000000-0000-0000-0000-000000000000"
+
+  tasks:
+  - name: Check if Consul is running
+    ansible.builtin.wait_for:
+      port: 8500
+      timeout: 10
+    register: consul_running
+    failed_when: false
+
+  - name: Fail if Consul is not running
+    ansible.builtin.fail:
+      msg: "Consul is not running on port 8500."
+    when: consul_running.failed
+
+  - name: Check that bootstrap token file exists
+    ansible.builtin.stat:
+      path: "{{ inventory_dir }}/tokens/consul-bootstrap-secret-id.txt"
+    register: token_file
+    delegate_to: localhost
+    become: false
+
+  - name: Fail if bootstrap token file is missing
+    ansible.builtin.fail:
+      msg: >
+        consul-bootstrap-secret-id.txt not found in {{ inventory_dir }}/tokens.
+        Run consul_acl_bootstrap.yaml first.
+    when: not token_file.stat.exists
+
+  - name: Read management token
+    ansible.builtin.slurp:
+      src: "{{ inventory_dir }}/tokens/consul-bootstrap-secret-id.txt"
+    register: mgmt_token_raw
+    delegate_to: localhost
+    become: false
+    no_log: true
+
+  - name: Set management token fact
+    ansible.builtin.set_fact:
+      consul_mgmt_token: "{{ mgmt_token_raw.content | b64decode | trim }}"
+    no_log: true
+
+  - name: Strip all policies from anonymous token
+    ansible.builtin.command: >
+      {{ consul_bin_path }} acl token update
+      -accessor-id {{ consul_anonymous_accessor_id }}
+      -description "Anonymous Token - no policies"
+      --no-merge
+    environment:
+      CONSUL_HTTP_ADDR: "{{ consul_http_addr }}"
+      CONSUL_HTTP_TOKEN: "{{ consul_mgmt_token }}"
+    register: anon_update_result
+    changed_when: anon_update_result.rc == 0
+    no_log: true
+
+  - name: Fail on unexpected update error
+    ansible.builtin.fail:
+      msg: "consul acl token update failed (rc={{ anon_update_result.rc }}): {{ anon_update_result.stderr }}"
+    when: anon_update_result.rc != 0
+
+  - name: Confirm anonymous token policies removed
+    ansible.builtin.debug:
+      msg:
+        - "=========================================="
+        - "ANONYMOUS TOKEN POLICIES REMOVED"
+        - "=========================================="
+        - ""
+        - "Accessor ID : {{ consul_anonymous_accessor_id }}"
+        - "Secret ID   : anonymous"
+        - ""
+        - "All policies and roles have been stripped."
+        - "Unauthenticated requests will be denied"
+        - "(subject to consul_acl_default_policy)."
+        - ""
+        - "=========================================="

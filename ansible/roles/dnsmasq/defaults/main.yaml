@@ -1,0 +1,44 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# dnsmasq role default variables
+
+# Package name
+dnsmasq_package: "dnsmasq"
+
+# Path to dnsmasq configuration files
+dnsmasq_conf_file: "/etc/dnsmasq.conf"
+dnsmasq_conf_dir: "/etc/dnsmasq.d"
+
+# Consul DNS settings
+# The local Consul agent DNS port (default: 8600)
+consul_dns_port: 8600
+# The loopback address where Consul's DNS server listens
+consul_dns_address: "127.0.0.1"
+
+# Upstream DNS servers for non-.consul queries.
+# On AWS, the VPC DNS resolver is at the VPC base address + 2 (e.g. 169.254.169.253).
+# Use the AWS-provided DNS or a public resolver.
+dnsmasq_upstream_dns_servers:
+  - "169.254.169.253"
+
+# Address dnsmasq binds to for DNS queries
+dnsmasq_listen_address: "127.0.0.1"
+
+# DNS cache size (number of entries; 0 disables caching)
+dnsmasq_cache_size: 1000
+
+# Disable systemd-resolved DNS stub listener so dnsmasq can occupy port 53.
+# Set to false only if systemd-resolved is not present or is already disabled.
+dnsmasq_disable_resolved_stub: true
+
+# Update /etc/resolv.conf to use dnsmasq as the system resolver.
+# This ensures all processes on the host can resolve .consul names.
+dnsmasq_update_resolv_conf: true
+
+# RFC 1918 networks for which Consul handles reverse DNS lookups.
+# Uncomment additional ranges as needed for your environment.
+dnsmasq_consul_rev_networks:
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"

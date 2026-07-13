@@ -1,0 +1,183 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook to bootstrap Consul ACL system
+#
+# Prerequisites:
+#   - Consul cluster deployed and healthy (consul_servers.yaml completed)
+#   - consul_acl_enabled: true set in the Consul role vars
+#
+# Usage:
+#   ansible-playbook -i inventory.ini consul_acl_bootstrap.yaml
+#
+# Output:
+#   consul-bootstrap-token-output.txt  — full bootstrap output (mode 0600)
+#   consul-bootstrap-secret-id.txt     — SecretID only, for scripting (mode 0600)
+#
+# Idempotent: re-running after a successful bootstrap displays the saved token
+# and exits cleanly without attempting to bootstrap again.
+
+- name: Bootstrap Consul ACL System
+  hosts: servers[0]
+  gather_facts: false
+
+  vars:
+    consul_bin_path: "/usr/local/bin/consul"
+    consul_http_addr: "http://127.0.0.1:8500"
+
+  tasks:
+  - name: Check if Consul is running
+    ansible.builtin.wait_for:
+      port: 8500
+      timeout: 10
+    register: consul_running
+    failed_when: false
+
+  - name: Fail if Consul is not running
+    ansible.builtin.fail:
+      msg: "Consul is not running on port 8500. Deploy the cluster with consul_servers.yaml first."
+    when: consul_running.failed
+
+  - name: Attempt to bootstrap Consul ACL system
+    ansible.builtin.command: "{{ consul_bin_path }} acl bootstrap"
+    environment:
+      CONSUL_HTTP_ADDR: "{{ consul_http_addr }}"
+    register: consul_acl_bootstrap_result
+    failed_when: false
+    changed_when: consul_acl_bootstrap_result.rc == 0
+    no_log: true
+
+  - name: Handle bootstrap result
+    when: consul_acl_bootstrap_result.rc == 0
+    block:
+    - name: Parse bootstrap token SecretID
+      ansible.builtin.set_fact:
+        consul_bootstrap_secret_id: >-
+          {{ consul_acl_bootstrap_result.stdout
+             | regex_search('SecretID:\s+([a-f0-9-]+)', '\1')
+             | first }}
+      no_log: true
+
+    - name: Ensure local tokens directory exists
+      ansible.builtin.file:
+        path: "{{ inventory_dir }}/tokens"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      become: false
+
+    - name: Save full bootstrap token output to local file
+      ansible.builtin.copy:
+        content: |
+          Consul ACL Bootstrap Token
+          ==========================
+          Generated: {{ now(fmt='%Y-%m-%d %H:%M:%S') }}
+
+          {{ consul_acl_bootstrap_result.stdout }}
+
+          Quick Reference
+          ===============
+          Token Secret ID: {{ consul_bootstrap_secret_id }}
+
+          Usage
+          =====
+          Export the token:
+            export CONSUL_HTTP_TOKEN={{ consul_bootstrap_secret_id }}
+
+          Or use with commands:
+            consul members -token={{ consul_bootstrap_secret_id }}
+        dest: "{{ inventory_dir }}/tokens/consul-bootstrap-token-output.txt"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+
+    - name: Save bootstrap token SecretID only
+      ansible.builtin.copy:
+        content: "{{ consul_bootstrap_secret_id }}"
+        dest: "{{ inventory_dir }}/tokens/consul-bootstrap-secret-id.txt"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+
+    - name: Display bootstrap success message
+      ansible.builtin.debug:
+        msg:
+        - "=========================================="
+        - "CONSUL ACL BOOTSTRAP SUCCESSFUL"
+        - "=========================================="
+        - ""
+        - "Secret ID: {{ consul_bootstrap_secret_id }}"
+        - ""
+        - "Token files saved to:"
+        - "  - {{ inventory_dir }}/tokens/consul-bootstrap-token-output.txt (full details)"
+        - "  - {{ inventory_dir }}/tokens/consul-bootstrap-secret-id.txt (token only)"
+        - ""
+        - "IMPORTANT: Save these tokens securely!"
+        - "They provide full administrative access to your Consul cluster."
+        - ""
+        - "To use the token:"
+        - "  export CONSUL_HTTP_TOKEN={{ consul_bootstrap_secret_id }}"
+        - ""
+        - "=========================================="
+
+  - name: Handle already bootstrapped
+    when: >
+      consul_acl_bootstrap_result.rc != 0 and ('ACL bootstrap no longer allowed' in consul_acl_bootstrap_result.stderr or
+       'already been bootstrapped' in consul_acl_bootstrap_result.stderr)
+    block:
+    - name: Check if token file exists locally
+      ansible.builtin.stat:
+        path: "{{ inventory_dir }}/tokens/consul-bootstrap-secret-id.txt"
+      register: consul_token_file
+      delegate_to: localhost
+      become: false
+
+    - name: Display already bootstrapped — token file found
+      when: consul_token_file.stat.exists
+      block:
+      - name: Read existing token
+        ansible.builtin.slurp:
+          src: "{{ inventory_dir }}/tokens/consul-bootstrap-secret-id.txt"
+        register: existing_consul_token
+        delegate_to: localhost
+        become: false
+
+      - name: Display existing token info
+        ansible.builtin.debug:
+          msg:
+          - "=========================================="
+          - "ACL SYSTEM ALREADY BOOTSTRAPPED"
+          - "=========================================="
+          - ""
+          - "Existing Secret ID: {{ existing_consul_token.content | b64decode | trim }}"
+          - ""
+          - "To use the token:"
+          - "  export CONSUL_HTTP_TOKEN={{ existing_consul_token.content | b64decode | trim }}"
+          - ""
+          - "=========================================="
+
+    - name: Display already bootstrapped — no token file
+      when: not consul_token_file.stat.exists
+      ansible.builtin.debug:
+        msg:
+        - "=========================================="
+        - "ACL SYSTEM ALREADY BOOTSTRAPPED"
+        - "=========================================="
+        - ""
+        - "WARNING: Token file not found at:"
+        - "  {{ inventory_dir }}/tokens/consul-bootstrap-secret-id.txt"
+        - ""
+        - "If you have the token stored elsewhere, set it with:"
+        - "  export CONSUL_HTTP_TOKEN=<your-token>"
+        - ""
+        - "If the token is lost, you must reset the ACL system."
+        - "Refer to: https://developer.hashicorp.com/consul/docs/security/acl/acl-system"
+        - ""
+        - "=========================================="
+
+  - name: Fail on unexpected bootstrap error
+    ansible.builtin.fail:
+      msg: >
+        consul acl bootstrap failed with an unexpected error (rc={{ consul_acl_bootstrap_result.rc }}). stderr: {{ consul_acl_bootstrap_result.stderr }}
+    when: >
+      consul_acl_bootstrap_result.rc != 0 and ('ACL bootstrap no longer allowed' not in consul_acl_bootstrap_result.stderr) and ('already been bootstrapped' not in consul_acl_bootstrap_result.stderr)

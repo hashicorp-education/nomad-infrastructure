@@ -1,0 +1,173 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook to bootstrap Nomad ACL system
+# Run this after deploying the Nomad cluster with ACLs enabled
+
+- name: Bootstrap Nomad ACL System
+  hosts: servers[0]
+  gather_facts: false
+
+  vars:
+    nomad_bin_path: "/usr/local/bin/nomad"
+    nomad_addr: "http://127.0.0.1:4646"
+
+  tasks:
+    - name: Check if Nomad is running
+      ansible.builtin.wait_for:
+        port: 4646
+        timeout: 10
+      register: nomad_running
+      failed_when: false
+
+    - name: Fail if Nomad is not running
+      ansible.builtin.fail:
+        msg: "Nomad is not running on port 4646. Please start Nomad first."
+      when: nomad_running.failed
+
+    - name: Attempt to bootstrap Nomad ACL system
+      ansible.builtin.command: "{{ nomad_bin_path }} acl bootstrap"
+      environment:
+        NOMAD_ADDR: "{{ nomad_addr }}"
+      register: nomad_acl_bootstrap_result
+      failed_when: false
+      changed_when: nomad_acl_bootstrap_result.rc == 0
+
+    - name: Handle bootstrap result
+      when: nomad_acl_bootstrap_result.rc == 0
+      block:
+        - name: Parse bootstrap token SecretID
+          ansible.builtin.set_fact:
+            nomad_bootstrap_secret_id: "{{ nomad_acl_bootstrap_result.stdout | regex_search('Secret ID\\s+=\\s+([a-f0-9-]+)', '\\1') | first }}"
+
+        - name: Ensure local tokens directory exists
+          ansible.builtin.file:
+            path: "{{ inventory_dir }}/tokens"
+            state: directory
+            mode: "0700"
+          delegate_to: localhost
+          become: false
+
+        - name: Save full bootstrap token output to local file
+          ansible.builtin.copy:
+            content: |
+              Nomad ACL Bootstrap Token
+              =========================
+              Generated: {{ now(fmt='%Y-%m-%d %H:%M:%S') }}
+
+              {{ nomad_acl_bootstrap_result.stdout }}
+
+              Quick Reference
+              ===============
+              Token Secret ID: {{ nomad_bootstrap_secret_id }}
+
+              Usage
+              =====
+              Export the token:
+                export NOMAD_TOKEN={{ nomad_bootstrap_secret_id }}
+
+              Or use with commands:
+                nomad status -token={{ nomad_bootstrap_secret_id }}
+            dest: "{{ inventory_dir }}/tokens/nomad-bootstrap-token-output.txt"
+            mode: "0600"
+          delegate_to: localhost
+          become: false
+
+        - name: Save bootstrap token SecretID only
+          ansible.builtin.copy:
+            content: "{{ nomad_bootstrap_secret_id }}"
+            dest: "{{ inventory_dir }}/tokens/nomad-bootstrap-secret-id.txt"
+            mode: "0600"
+          delegate_to: localhost
+          become: false
+
+        - name: Display bootstrap success message
+          ansible.builtin.debug:
+            msg:
+              - "=========================================="
+              - "NOMAD ACL BOOTSTRAP SUCCESSFUL"
+              - "=========================================="
+              - ""
+              - "Secret ID: {{ nomad_bootstrap_secret_id }}"
+              - ""
+              - "Token files saved to:"
+              - "  - {{ inventory_dir }}/tokens/nomad-bootstrap-token-output.txt (full details)"
+              - "  - {{ inventory_dir }}/tokens/nomad-bootstrap-secret-id.txt(token only)"
+              - ""
+              - "IMPORTANT: Save these tokens securely!"
+              - "They provide full administrative access to your Nomad cluster."
+              - ""
+              - "To use the token:"
+              - "  export NOMAD_TOKEN={{ nomad_bootstrap_secret_id }}"
+              - ""
+              - "=========================================="
+
+    - name: Handle already bootstrapped
+      when: nomad_acl_bootstrap_result.rc != 0 and 'ACL bootstrap already done' in nomad_acl_bootstrap_result.stderr
+      block:
+        - name: Check if token file exists locally
+          ansible.builtin.stat:
+            path: "{{ inventory_dir }}/tokens/nomad-bootstrap-secret-id.txt"
+          register: token_file_exists
+          delegate_to: localhost
+          become: false
+
+        - name: Display already bootstrapped message with token
+          when: token_file_exists.stat.exists
+          block:
+            - name: Read existing token
+              ansible.builtin.slurp:
+                src: "{{ inventory_dir }}/tokens/nomad-bootstrap-secret-id.txt"
+              register: existing_token
+              delegate_to: localhost
+              become: false
+
+            - name: Display existing token info
+              ansible.builtin.debug:
+                msg:
+                  - "=========================================="
+                  - "ACL SYSTEM ALREADY BOOTSTRAPPED"
+                  - "=========================================="
+                  - ""
+                  - "The ACL system was previously bootstrapped."
+                  - ""
+                  - "Existing token found:"
+                  - "  Secret ID: {{ existing_token.content | b64decode | trim }}"
+                  - ""
+                  - "Token files location:"
+                  - "  - {{ inventory_dir }}/tokens/nomad-bootstrap-token-output.txt"
+                  - "  - {{ inventory_dir }}/tokens/nomad-bootstrap-secret-id.txt"
+                  - ""
+                  - "=========================================="
+
+        - name: Display already bootstrapped message without token
+          when: not token_file_exists.stat.exists
+          ansible.builtin.debug:
+            msg:
+              - "=========================================="
+              - "ACL SYSTEM ALREADY BOOTSTRAPPED"
+              - "=========================================="
+              - ""
+              - "The ACL system was previously bootstrapped,"
+              - "but no local token file was found."
+              - ""
+              - "If you lost the bootstrap token, you will need to"
+              - "bootstrap the system again. SSH into a server and follow these instructions:"
+              - "https://developer.hashicorp.com/nomad/docs/secure/acl/bootstrap#re-bootstrap-acl-system"
+              - ""
+              - "=========================================="
+
+    - name: Handle other bootstrap errors
+      when: nomad_acl_bootstrap_result.rc != 0 and 'ACL bootstrap already done' not in nomad_acl_bootstrap_result.stderr
+      ansible.builtin.fail:
+        msg: |
+          Failed to bootstrap Nomad ACL system.
+
+          Error: {{ nomad_acl_bootstrap_result.stderr }}
+
+          Common issues:
+          - ACLs may not be enabled in Nomad configuration
+          - Nomad may not be fully started
+          - Network connectivity issues
+
+          Check Nomad logs: sudo journalctl -u nomad -n 50

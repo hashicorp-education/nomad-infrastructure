@@ -1,0 +1,146 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook: cluster_summary.yaml
+#
+# Shared cluster status summary imported by every deploy_*.yaml playbook.
+# All variables default to safe no-op values so this playbook is harmless
+# when run standalone; callers pass overrides via import_playbook vars:.
+#
+# Variables (all optional):
+#   summary_title              str   Completion banner title
+#   summary_show_consul_tokens bool  Show Consul bootstrap token
+#   summary_show_nomad_tokens  bool  Show Nomad bootstrap token
+#   summary_show_sd_tokens     bool  Show Nomad server/client -> Consul agent tokens
+#   summary_show_consul_env    bool  Show CONSUL_HTTP_ADDR and CONSUL_HTTP_TOKEN exports
+#   summary_show_nomad_env     bool  Show NOMAD_ADDR and NOMAD_TOKEN exports
+#   summary_show_consul_ui     bool  Show Consul UI access URL
+#   summary_show_nomad_ui      bool  Show Nomad UI access URL
+#   summary_next_steps         list  Numbered next-step strings to display
+#
+# Usage:
+#   - name: Import cluster summary
+#     ansible.builtin.import_playbook: cluster_summary.yaml
+#     vars:
+#       summary_title: "Consul Cluster Configuration Complete!"
+#       summary_show_consul_tokens: true
+#       summary_show_consul_env: true
+#       summary_show_consul_ui: true
+#       summary_next_steps:
+#       - "  1. SSH to a server and verify Consul cluster: consul members"
+
+# ── Cluster access tokens ─────────────────────────────────────────────────────
+
+- name: Cluster status summary — access tokens
+  hosts: localhost
+  gather_facts: false
+  become: false
+  tasks:
+  - name: Display cluster access tokens header
+    ansible.builtin.debug:
+      msg:
+      - "=========================================="
+      - "Cluster Access Tokens"
+      - "=========================================="
+
+  - name: Display Consul bootstrap token
+    ansible.builtin.debug:
+      msg:
+      - "Consul bootstrap token:"
+      - "  {{ lookup('file', hostvars[groups['servers'][0]]['inventory_dir'] + '/tokens/consul-bootstrap-secret-id.txt', errors='ignore') or '(not found — run consul_acl_bootstrap.yaml)' }}"
+    when: summary_show_consul_tokens | default(false) | bool
+
+  - name: Display Nomad bootstrap token
+    ansible.builtin.debug:
+      msg:
+      - "Nomad bootstrap token:"
+      - "  {{ lookup('file', hostvars[groups['servers'][0]]['inventory_dir'] + '/tokens/nomad-bootstrap-secret-id.txt', errors='ignore') or '(not found — run nomad_acl_bootstrap.yaml)' }}"
+    when: summary_show_nomad_tokens | default(false) | bool
+
+  - name: Display service discovery agent tokens
+    ansible.builtin.debug:
+      msg:
+      - "Nomad server agent -> Consul token:"
+      - "  {{ lookup('file', hostvars[groups['servers'][0]]['inventory_dir'] + '/tokens/nomad-consul-server-secret-id.txt', errors='ignore') or '(not found — run consul_nomad_service_discovery.yaml)' }}"
+      - ""
+      - "Nomad client agent -> Consul token:"
+      - "  {{ lookup('file', hostvars[groups['servers'][0]]['inventory_dir'] + '/tokens/nomad-consul-client-secret-id.txt', errors='ignore') or '(not found — run consul_nomad_service_discovery.yaml)' }}"
+    when: summary_show_sd_tokens | default(false) | bool
+
+# ── Environment variables ─────────────────────────────────────────────────────
+
+- name: Cluster status summary — environment variables
+  hosts: localhost
+  gather_facts: false
+  become: false
+  tasks:
+  - name: Display environment variables header
+    ansible.builtin.debug:
+      msg:
+      - "=========================================="
+      - "Environment Variables"
+      - "=========================================="
+      - ""
+      - "Run the following to set environment variables in your terminal:"
+
+  - name: Display Consul environment variables
+    ansible.builtin.debug:
+      msg:
+      - "  export CONSUL_HTTP_ADDR=http://{{ hostvars[groups['servers'][0]]['ansible_host'] }}:8500"
+      - "  export CONSUL_HTTP_TOKEN={{ lookup('file', hostvars[groups['servers'][0]]['inventory_dir'] + '/tokens/consul-bootstrap-secret-id.txt', errors='ignore') or '(not found)' }}"
+    when: summary_show_consul_env | default(false) | bool
+
+  - name: Display Nomad environment variables
+    ansible.builtin.debug:
+      msg:
+      - "  export NOMAD_ADDR=http://{{ hostvars[groups['servers'][0]]['ansible_host'] }}:4646"
+      - "  export NOMAD_TOKEN={{ lookup('file', hostvars[groups['servers'][0]]['inventory_dir'] + '/tokens/nomad-bootstrap-secret-id.txt', errors='ignore') or '(not found)' }}"
+    when: summary_show_nomad_env | default(false) | bool
+
+  - name: Display helper script instructions
+    ansible.builtin.debug:
+      msg:
+      - ""
+      - "Or source the helper script from the ansible/ directory:"
+      - "  source ./set-cluster-env.sh"
+      - "  source ./unset-cluster-env.sh   # to unset"
+
+# ── Completion message ────────────────────────────────────────────────────────
+
+- name: Cluster status summary — completion message
+  hosts: localhost
+  gather_facts: false
+  become: false
+  tasks:
+  - name: Display completion message
+    ansible.builtin.debug:
+      msg:
+      - "=========================================="
+      - "{{ summary_title | default('Cluster Configuration Complete!') }}"
+      - "=========================================="
+      - ""
+      - "Servers configured: {{ groups['servers'] | length }}"
+      - "Clients configured: {{ groups['clients'] | length }}"
+      - ""
+      - "SSH Access to Servers:"
+      - "{% for host in groups['servers'] %}  ssh -o 'IdentitiesOnly=yes' -i ssh_key.pem ubuntu@{{ hostvars[host]['ansible_host'] }}  # {{ host }}{% endfor %}"
+      - ""
+      - "SSH Access to Clients:"
+      - "{% for host in groups['clients'] %}  ssh -o 'IdentitiesOnly=yes' -i ssh_key.pem ubuntu@{{ hostvars[host]['ansible_host'] }}  # {{ host }}{% endfor %}"
+
+  - name: Display Nomad UI access
+    ansible.builtin.debug:
+      msg:
+      - ""
+      - "Access Nomad UI at:"
+      - "{% for host in groups['servers'] %}  http://{{ hostvars[host]['ansible_host'] }}:4646{% endfor %}"
+    when: summary_show_nomad_ui | default(false) | bool
+
+  - name: Display Consul UI access
+    ansible.builtin.debug:
+      msg:
+      - ""
+      - "Access Consul UI at:"
+      - "{% for host in groups['servers'] %}  http://{{ hostvars[host]['ansible_host'] }}:8500/ui{% endfor %}"
+    when: summary_show_consul_ui | default(false) | bool
+

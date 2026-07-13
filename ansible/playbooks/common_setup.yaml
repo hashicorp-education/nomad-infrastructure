@@ -1,0 +1,49 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook: common_setup.yaml
+#
+# Shared setup plays imported by every deploy_*.yaml playbook:
+#   1. Configure all hosts  — displays host info and ensures passwordless sudo
+#   2. Test Ansible connectivity — pings every host and shows the result
+#
+# Import this playbook at the top of any deploy playbook:
+#   - name: Import common setup
+#     ansible.builtin.import_playbook: common_setup.yaml
+
+# ── Configure all hosts ───────────────────────────────────────────────────────
+
+- name: Configure all hosts
+  hosts: all
+  gather_facts: true
+  tasks:
+  - name: Display host information
+    ansible.builtin.debug:
+      msg: "Configuring {{ inventory_hostname }} ({{ ansible_facts['default_ipv4']['address'] | default('IP pending') }})"
+
+  - name: Display Ansible distribution
+    ansible.builtin.debug:
+      msg: "Ansible distribution: {{ ansible_facts['distribution'] }}"
+
+  - name: Allow 'ubuntu' user to have passwordless sudo
+    ansible.builtin.lineinfile:
+      path: /etc/sudoers.d/ubuntu_sudo
+      line: 'ubuntu ALL=(ALL) NOPASSWD:ALL'
+      state: present
+      mode: '0440'
+      create: true
+      validate: '/usr/sbin/visudo -cf %s'
+
+# ── Test Ansible connectivity ─────────────────────────────────────────────────
+
+- name: Test Ansible connectivity
+  hosts: all
+  gather_facts: false
+  tasks:
+  - name: Ping all hosts
+    ansible.builtin.ping:
+    register: ping_result
+
+  - name: Show ping result
+    ansible.builtin.debug:
+      var: ping_result
