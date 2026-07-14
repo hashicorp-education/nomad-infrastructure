@@ -39,9 +39,9 @@ This project provisions a production-ready cluster of **3 servers and 2 clients*
 - **Consul Cloud Auto-Join**: Consul discovers peers automatically using the `AutoJoinRole` EC2 tag — no hardcoded IPs
 - **Nomad static join**: Nomad uses private IPs from the Ansible inventory for `server_join.retry_join`
 - **IAM-powered discovery**: EC2 instance profiles grant least-privilege `ec2:DescribeInstances` access for Consul Cloud Auto-Join
-- **TLS-ready**: Certificate generation and distribution are wired in; enable per-playbook with `nomad_tls_enabled: true` / `consul_tls_enabled: true`
-- **ACL-ready**: Consul ACLs are enabled on servers by default; Nomad ACLs are enabled on all nodes by default; each has a dedicated bootstrap playbook
-- **Consul service discovery**: Nomad integrates with Consul using Workload Identities (JWT-based, Nomad 1.7+) — no shared static tokens; Nomad services and tasks obtain scoped Consul ACL tokens automatically
+- **TLS-ready**: Certificate generation and distribution are wired in. Enable them per playbook with `nomad_tls_enabled: true` or `consul_tls_enabled: true`.
+- **ACL-ready**: Consul ACLs are enabled on servers by default. Nomad ACLs are enabled on all nodes by default. Each has a dedicated bootstrap playbook.
+- **Consul service discovery**: Nomad integrates with Consul using Workload Identities (JWT-based, Nomad 1.7+) with no shared static tokens. Nomad services and tasks obtain scoped Consul ACL tokens automatically.
 - **dnsmasq DNS forwarding**: Every node runs dnsmasq to forward `.consul` DNS queries to the local Consul agent, enabling service address resolution for all processes
 - **CNI + Docker**: Clients install CNI plugins and Docker CE for containerized workloads
 - **Idempotent**: Safe to re-run Terraform and Ansible repeatedly
@@ -105,10 +105,10 @@ graph TB
 | Port | Protocol | Service | Accessible from |
 |------|----------|---------|----------------|
 | 22 | TCP | SSH | `allowed_ssh_cidr` |
-| 8500 | TCP | Consul HTTP API & UI | 0.0.0.0/0 |
+| 8500 | TCP | Consul HTTP API & UI | `0.0.0.0/0` |
 | 8300 | TCP | Consul RPC | Internal (security group) |
 | 8301 | TCP/UDP | Consul Serf LAN | Internal (security group) |
-| 4646 | TCP | Nomad HTTP API & UI | 0.0.0.0/0 |
+| 4646 | TCP | Nomad HTTP API & UI | `0.0.0.0/0` |
 | all | all | Internal cluster traffic | Internal (security group) |
 
 Restrict these in production. Refer to [ansible/README-SECURITY-GROUP.md](ansible/README-SECURITY-GROUP.md).
@@ -132,7 +132,7 @@ ansible-galaxy install -r requirements.yaml
 
 ## Quick start
 
-**For full step-by-step instructions, see [DEPLOY_CLUSTER_GUIDE.MD](DEPLOY_CLUSTER_GUIDE.MD).**
+**For full step-by-step instructions, refer to [DEPLOY_CLUSTER_GUIDE.MD](DEPLOY_CLUSTER_GUIDE.MD).**
 
 ### 1. Provision infrastructure
 
@@ -161,7 +161,7 @@ ansible-galaxy install -r requirements.yaml
 |----------|----------------|----------|
 | [`deploy_consul.yaml`](ansible/deploy_consul.yaml) | Consul servers + clients + ACL + dnsmasq | Consul-only service mesh or DNS |
 | [`deploy_nomad.yaml`](ansible/deploy_nomad.yaml) | Nomad servers + clients + ACL | Nomad-only workload orchestration |
-| [`deploy_consul_nomad_sd.yaml`](ansible/deploy_consul_nomad_sd.yaml) | Consul + Nomad + service discovery | Nomad registers services and health checks via Consul |
+| [`deploy_consul_nomad_sd.yaml`](ansible/deploy_consul_nomad_sd.yaml) | Consul + Nomad + service discovery | Nomad registers services and health checks through Consul |
 | [`deploy_consul_nomad_wi.yaml`](ansible/deploy_consul_nomad_wi.yaml) | Consul + Nomad + service discovery + workload identity | Nomad workloads obtain scoped Consul tokens automatically |
 
 Each playbook configures all hosts, tests Ansible connectivity, deploys the named services, and prints a cluster status summary with access tokens and environment variable export commands. Refer to [ansible/PLAYBOOKS-README.md](ansible/PLAYBOOKS-README.md) for full details on each scenario.
@@ -281,9 +281,9 @@ Defaults: [`ansible/roles/nomad/defaults/main.yaml`](ansible/roles/nomad/default
 
 The security group allows:
 
-- **SSH (22)**: From `allowed_ssh_cidr` (default `0.0.0.0/0` — **change this**)
-- **Consul HTTP API/UI (8500)**: From `0.0.0.0/0` — restrict in production
-- **Nomad HTTP API/UI (4646)**: From `0.0.0.0/0` — restrict in production
+- **SSH (22)**: From `allowed_ssh_cidr`. The default value `0.0.0.0/0` is not appropriate for production. Set this to your specific IP address or network range.
+- **Consul HTTP API/UI (8500)**: From `0.0.0.0/0`. Restrict this in production.
+- **Nomad HTTP API/UI (4646)**: From `0.0.0.0/0`. Restrict this in production.
 - **All internal traffic**: Between instances sharing the security group
 - **Egress**: All outbound traffic allowed
 

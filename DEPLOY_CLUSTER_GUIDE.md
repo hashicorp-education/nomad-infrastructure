@@ -1,13 +1,13 @@
 # Nomad plus Consul cluster deployment guide
 
-Step-by-step instructions for deploying a co-located HashiCorp Consul and Nomad cluster on AWS.
+This guide provides step-by-step instructions for deploying a co-located HashiCorp Consul and Nomad cluster on AWS.
 
 ## Overview
 
 The deployment has two phases:
 
-1. **Terraform** — Provisions AWS infrastructure (~five minutes)
-2. **Ansible** — Installs and configures Consul and Nomad (~10–15 minutes)
+1. **Terraform** — Provisions AWS infrastructure (approximately five minutes)
+2. **Ansible** — Installs and configures Consul and Nomad (approximately 10–15 minutes)
 
 ```mermaid
 flowchart TD
@@ -105,10 +105,10 @@ cd terraform/aws
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Edit `terraform.tfvars` to use values specific to your deployment. We tested
-this installation process with an Ubuntu 24.04 AMI.
+Edit `terraform.tfvars` to use values specific to your deployment. This guide
+was tested with an Ubuntu 24.04 AMI.
 
-**Important values**
+**Important values:**
 
 - `aws_region`
 - `owner`
@@ -147,7 +147,7 @@ client_instance_type = "t3.medium"
 terraform init
 ```
 
-Downloads the AWS, Local, Null, and TLS providers.
+This command downloads the AWS, Local, Null, and TLS providers.
 
 ### Step 3: Review the execution plan
 
@@ -155,7 +155,7 @@ Downloads the AWS, Local, Null, and TLS providers.
 terraform plan
 ```
 
-Expect Terraform to create approximately 18 resources. Review instance types, counts, and security group rules before proceeding.
+Terraform creates approximately 18 resources. Review instance types, counts, and security group rules before proceeding.
 
 ### Step 4: Apply
 
@@ -163,7 +163,7 @@ Expect Terraform to create approximately 18 resources. Review instance types, co
 terraform apply
 ```
 
-Type `yes` when prompted. Duration: approximately five minutes.
+Type `yes` when prompted. Terraform takes approximately five minutes to complete.
 
 **What Terraform creates:**
 
@@ -197,7 +197,7 @@ cd ../../ansible
 ansible all -m ping
 ```
 
-Expected: `pong` from all 5 hosts. If connections fail:
+Expected output is `pong` from all five hosts. If connections fail:
 
 ```bash
 chmod 600 ssh_key.pem
@@ -244,14 +244,11 @@ Sub-playbooks executed in order:
 | 5 | `dnsmasq` | `all` | Installs dnsmasq; disables systemd-resolved stub listener; forwards `.consul` queries to `127.0.0.1:8600`; rewrites `/etc/resolv.conf` |
 | 6 | `cluster_summary` | `localhost` | Prints Consul bootstrap token, `export CONSUL_HTTP_ADDR` and `export CONSUL_HTTP_TOKEN` commands, and Consul UI URL |
 
-Duration: ~10 minutes.
+Duration: approximately 10 minutes.
 
-If the process encounters issues, refer to the [Troubleshooting
-section](#troubleshooting).
+If the process encounters issues, refer to the [Troubleshooting section](#troubleshooting).
 
-You can run the `teardown.yaml` playbook to remove what Ansible deployed on the
-servers. Then run `unset-cluster-env.sh` to remove the environment variables
-from your terminal.
+To remove what Ansible deployed, run the `teardown.yaml` playbook. Then run `unset-cluster-env.sh` to remove the environment variables from your terminal.
 
 ---
 
@@ -276,14 +273,11 @@ Sub-playbooks executed in order:
 | 4 | `nomad_acl_bootstrap` | `servers[0]` | Bootstraps Nomad ACL; saves management token to `ansible/tokens/nomad-bootstrap-*.txt` |
 | 5 | `cluster_summary` | `localhost` | Prints Nomad bootstrap token, `export NOMAD_ADDR` and `export NOMAD_TOKEN` commands, and Nomad UI URL |
 
-Duration: ~10 minutes.
+Duration: approximately 10 minutes.
 
-If the process encounters issues, refer to the [Troubleshooting
-section](#troubleshooting).
+If the process encounters issues, refer to the [Troubleshooting section](#troubleshooting).
 
-You can run the `teardown.yaml` playbook to remove what Ansible deployed on the
-servers. Then run `unset-cluster-env.sh` to remove the environment variables
-from your terminal.
+To remove what Ansible deployed, run the `teardown.yaml` playbook. Then run `unset-cluster-env.sh` to remove the environment variables from your terminal.
 
 ---
 
@@ -318,7 +312,7 @@ Sub-playbooks executed in order:
 
 **Status summary includes:** Consul bootstrap token, Nomad bootstrap token, Consul agent token for Nomad servers, Consul agent token for Nomad clients, `export CONSUL_HTTP_ADDR`, `export CONSUL_HTTP_TOKEN`, `export NOMAD_ADDR`, `export NOMAD_TOKEN`, and both UI URLs.
 
-Duration: ~15 minutes.
+Duration: approximately 15 minutes.
 
 To add workload identity to this deployment later:
 
@@ -326,12 +320,10 @@ To add workload identity to this deployment later:
 ansible-playbook -i inventory.ini playbooks/consul_nomad_workload_identity.yaml
 ```
 
-If the process encounters issues, refer to the [Troubleshooting
-section](#troubleshooting).
+If the process encounters issues, refer to the [Troubleshooting section](#troubleshooting).
 
-You can run the `teardown.yaml` playbook to remove what Ansible deployed on the
-servers. Then run `unset-cluster-env.sh` to remove the environment variables
-from your terminal.
+To remove what Ansible deployed, run the `teardown.yaml` playbook. Then run `unset-cluster-env.sh` to remove the environment variables from your terminal.
+
 ---
 
 ### Option D: Consul + Nomad with service discovery and workload identity — `deploy_consul_nomad_wi.yaml`
@@ -355,7 +347,7 @@ Sub-playbooks executed in order:
 
 **Status summary includes:** same as Option C.
 
-Duration: ~15 minutes.
+Duration: approximately 15 minutes.
 
 Verify the JWT auth method after deployment:
 
@@ -364,12 +356,9 @@ consul acl auth-method list
 # Expected output includes: nomad-workloads
 ```
 
-If the process encounters issues, refer to the [Troubleshooting
-section](#troubleshooting).
+If the process encounters issues, refer to the [Troubleshooting section](#troubleshooting).
 
-You can run the `teardown.yaml` playbook to remove what Ansible deployed on the
-servers. Then run `unset-cluster-env.sh` to remove the environment variables
-from your terminal.
+To remove what Ansible deployed, run the `teardown.yaml` playbook. Then run `unset-cluster-env.sh` to remove the environment variables from your terminal.
 
 ---
 
@@ -457,7 +446,7 @@ Use the bootstrap token values to log into the UIs. Find the values in these fil
 
 The job specification files for the example Countdash app are located in the
 root-level `nomad-jobs` directory. The app has a web UI that connects to an API
-on the server.  The Terraform process added the ports to the AWS security group.
+on the server. Terraform added the ports to the AWS security group.
 
 ### Deploy the app with Nomad for service discovery
 
@@ -498,8 +487,7 @@ nomad job run countdash-consul-service-discovery.nomad.hcl
 nomad job status countdash
 ```
 
-Use the Consul API to find the Countdash public address. To execute the
-following command, make sure you have done the following:
+Use the Consul API to find the Countdash public address. Before running the following command, complete these steps:
 
 - Set the [post-deployment environment variables](#post-deployment-set-environment-variables)
 - Installed [curl v8.3.0 or later](https://curl.se/)
@@ -608,13 +596,13 @@ aws ec2 delete-key-pair --key-name nomad-consul-key
 
 ### Terraform: InsufficientInstanceCapacity
 
-Try a different availability zone or instance type (for example, `t3a.medium`), or wait a few minutes and retry.
+Try a different availability zone or instance type (for example, `t3a.medium`). Alternatively, wait a few minutes and retry.
 
 ---
 
 ## Advanced: run individual layers
 
-You can run individual sub-playbooks directly for targeted operations, such as re-deploying only the Consul servers or re-running ACL bootstrap after a reset.
+Run individual sub-playbooks directly for targeted operations, such as re-deploying only the Consul servers or re-running ACL bootstrap after a reset.
 
 ### Consul layer
 
@@ -731,7 +719,7 @@ Post-task: waits for Nomad HTTP API on port 4646.
 > playbooks separately if you deployed Consul or Nomad using individual layer
 > playbooks from the [Advanced section](#advanced-run-individual-layers).
 
-The bootstrap must be run **once**, after the cluster is first formed.
+Run the bootstrap once, after the cluster is first formed.
 
 ### Consul ACL bootstrap
 
@@ -783,9 +771,7 @@ nomad acl token self
 
 ## Cleanup
 
-From the `ansible` directory, run the teardown playbook. After removing software
-and reversing configuration on the VMs, this playbook removes tokens and TLS
-certificates from your workstation.
+From the `ansible` directory, run the teardown playbook. The playbook removes software, reverses configuration on the VMs, and removes tokens and TLS certificates from your workstation.
 
 ```bash
 ansible-playbook -i inventory.ini teardown.yaml
