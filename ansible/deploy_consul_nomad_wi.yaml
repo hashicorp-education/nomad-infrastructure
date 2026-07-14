@@ -49,6 +49,9 @@
 - name: Configure dnsmasq for Consul DNS forwarding
   ansible.builtin.import_playbook: playbooks/dnsmasq.yaml
 
+- name: Add deny all policy to Consul anonymous token
+  ansible.builtin.import_playbook: playbooks/consul_acl_deny_anonymous.yaml
+
 # ── Deploy Nomad ──────────────────────────────────────────────────────────────
 
 - name: Import Nomad server playbook

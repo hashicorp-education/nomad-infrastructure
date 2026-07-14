@@ -69,6 +69,22 @@
         dest: "{{ nomad_consul_staging_dir }}/nomad-workloads-auth-method.json"
         mode: "0600"
 
+    - name: Slurp rendered nomad-workloads-auth-method.json for debug
+      become: true
+      ansible.builtin.slurp:
+        src: "{{ nomad_consul_staging_dir }}/nomad-workloads-auth-method.json"
+      register: _auth_method_content
+      changed_when: false
+      tags:
+        - debug_config
+
+    - name: Print rendered nomad-workloads-auth-method.json
+      ansible.builtin.debug:
+        msg: "{{ _auth_method_content.content | b64decode }}"
+        verbosity: 1
+      tags:
+        - debug_config
+
     # -- Create Consul ACL policy for task workload identities ----------------
 
     - name: Create Consul ACL policy for Nomad task workload identities

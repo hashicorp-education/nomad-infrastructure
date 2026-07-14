@@ -1,4 +1,4 @@
-# nomad-infra Agent Guidelines
+# nomad-infrastructure Agent Guidelines
 
 Terraform + Ansible project that deploys a production-ready HashiCorp Nomad cluster (3 servers + 2 clients) **with a co-located Consul cluster** on AWS. Refer to [README.md](README.md) and [DEPLOY_CLUSTER_GUIDE.MD](DEPLOY_CLUSTER_GUIDE.MD) for full context.
 
@@ -59,10 +59,12 @@ ansible-playbook -i inventory.ini playbooks/nomad_acl_bootstrap.yaml
 - The external role `geerlingguy.docker` is managed via [requirements.yaml](ansible/requirements.yaml) — re-run `ansible-galaxy install` after any change.
 - Nomad config is templated via Jinja2 in `ansible/roles/nomad/templates/`. Refer to [roles/nomad/README.md](ansible/roles/nomad/README.md).
 - Consul config is templated via Jinja2 in `ansible/roles/consul/templates/`. Refer to [roles/consul/README.md](ansible/roles/consul/README.md).
-- Key version variables: `nomad_binary_version` in [roles/nomad/defaults/main.yaml](ansible/roles/nomad/defaults/main.yaml), `consul_binary_version` in [roles/consul/defaults/main.yaml](ansible/roles/consul/defaults/main.yaml).
+- Product version pins (`nomad_binary_version`, `consul_binary_version`, `cni_plugins_version`) are set in [ansible/group_vars/all.yaml](ansible/group_vars/all.yaml) — edit that file to change any product version. Role `defaults/` files are the fallback and should not need direct edits.
 - Server/client mode is toggled by role variables (`nomad_server_enabled`, `consul_server_enabled`) rather than separate role files.
-- All roles include `meta/argument_specs.yaml` for Ansible 2.11+ variable validation.
+- All roles include `meta/argument_specs.yaml` for Ansible 2.11+ variable validation — **update it when adding or changing role variables**.
 - ACL bootstrap token files are written to `ansible/tokens/` (mode 0600). The `tokens/` directory is created by the bootstrap playbooks on first run.
+- After writing any HCL config template, add a `<binary> validate <config_dir>` task tagged `*_validate` (e.g. `nomad_validate`, `consul_validate`) before notifying a restart.
+- Config template roles include `slurp` + `debug` tasks tagged `debug_config`. Print all rendered configs with: `ansible-playbook ... --tags debug_config -v`
 
 ## Sensitive Files (git-ignored, never commit)
 
@@ -96,7 +98,7 @@ ansible-playbook -i inventory.ini playbooks/nomad_acl_bootstrap.yaml
 | Ansible playbooks | [ansible/PLAYBOOKS-README.md](ansible/PLAYBOOKS-README.md) |
 | ACL bootstrap procedure | [ansible/BOOTSTRAP_ACL_EXAMPLE.md](ansible/BOOTSTRAP_ACL_EXAMPLE.md) |
 | Security group hardening | [ansible/README-SECURITY-GROUP.md](ansible/README-SECURITY-GROUP.md) |
-| Ansible lint results | [ansible/ANSIBLE_LINT_RESULTS.md](ansible/ANSIBLE_LINT_RESULTS.md) |
+| Upgrade plans | [.github/plans/](.github/plans/) |
 | Role: nomad | [ansible/roles/nomad/README.md](ansible/roles/nomad/README.md) |
 | Role: consul | [ansible/roles/consul/README.md](ansible/roles/consul/README.md) |
 | Role: tls | [ansible/roles/tls/README.md](ansible/roles/tls/README.md) |

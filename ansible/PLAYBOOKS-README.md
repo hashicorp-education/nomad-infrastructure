@@ -622,21 +622,65 @@ ansible-playbook -i inventory.ini teardown.yaml --tags teardown_tokens
 
 ---
 
+## Inspecting rendered configuration files
+
+Each role that writes an HCL or JSON configuration file includes a `slurp` +
+`debug` task pair tagged `debug_config`. These tasks read the rendered file back
+from the remote host and print its contents when you run with at least `-v`.
+
+### Print all rendered configs during a deployment
+
+```bash
+ansible-playbook -i inventory.ini deploy_consul_nomad_sd.yaml -v
+```
+
+### Print rendered configs without re-running the full play
+
+```bash
+ansible-playbook -i inventory.ini deploy_consul_nomad_sd.yaml --tags debug_config -v
+```
+
+Replace `deploy_consul_nomad_sd.yaml` with any entrypoint or sub-playbook. For
+example, to inspect only the Nomad client config after an upgrade:
+
+```bash
+ansible-playbook -i inventory.ini playbooks/nomad_clients.yaml --tags debug_config -v
+```
+
+### Files that are printed
+
+| Role | File | Note |
+|------|------|------|
+| `nomad` | `{{ nomad_config_dir }}/nomad.hcl` | |
+| `consul` | `{{ consul_config_dir }}/consul.hcl` | Suppressed when gossip encryption is enabled |
+| `dnsmasq` | `{{ dnsmasq_conf_file }}` | Main dnsmasq config |
+| `dnsmasq` | `{{ dnsmasq_conf_dir }}/10-consul` | Consul DNS forwarding config |
+| `nomad_consul` | `{{ nomad_consul_staging_dir }}/nomad-workloads-auth-method.json` | Workload identity scenario only |
+
+> **Note:** `consul.hcl` contains the Consul gossip key when gossip encryption
+> is enabled. The print task is automatically suppressed in that case to avoid
+> leaking the key to the terminal.
+
+---
+
 ## Playbook variables reference
 
 ### Version variables
 
-To change the Nomad or Consul binary version, edit the role defaults file and re-run the relevant playbooks:
+To change the Nomad, Consul, or CNI plugin version, edit
+[`ansible/group_vars/all.yaml`](group_vars/all.yaml) and re-run the relevant
+playbooks. This is the single file for all product version pins.
 
-| File | Variable | Current value | Description |
-|------|----------|---------------|-------------|
-| `ansible/roles/nomad/defaults/main.yaml` | `nomad_binary_version` | `2.0.4` | Nomad binary version to download and install |
-| `ansible/roles/consul/defaults/main.yaml` | `consul_binary_version` | `2.0.1` | Consul binary version to download and install |
+| Variable | Current value | Description |
+|----------|---------------|-------------|
+| `nomad_binary_version` | `2.0.4` | Nomad binary version to download and install |
+| `consul_binary_version` | `2.0.1` | Consul binary version to download and install |
+| `cni_plugins_version` | `1.9.1` | CNI plugins version to download and install |
 
 ```bash
-# After editing the defaults file, re-run:
-ansible-playbook -i inventory.ini nomad_servers.yaml nomad_clients.yaml   # Nomad upgrade
-ansible-playbook -i inventory.ini consul_servers.yaml consul_clients.yaml  # Consul upgrade
+# After editing group_vars/all.yaml, re-run:
+ansible-playbook -i inventory.ini playbooks/nomad_servers.yaml playbooks/nomad_clients.yaml   # Nomad upgrade
+ansible-playbook -i inventory.ini playbooks/consul_servers.yaml playbooks/consul_clients.yaml  # Consul upgrade
 ```
 
 ### Common variables (all playbooks)

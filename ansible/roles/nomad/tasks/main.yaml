@@ -56,6 +56,22 @@
     mode: "0600"
   notify: Restart nomad
 
+- name: Slurp rendered nomad.hcl for debug
+  become: true
+  ansible.builtin.slurp:
+    src: "{{ nomad_config_dir }}/nomad.hcl"
+  register: _nomad_hcl_content
+  changed_when: false
+  tags:
+    - debug_config
+
+- name: Print rendered nomad.hcl
+  ansible.builtin.debug:
+    msg: "{{ _nomad_hcl_content.content | b64decode }}"
+    verbosity: 1
+  tags:
+    - debug_config
+
 - name: Create Nomad systemd service file
   become: true
   ansible.builtin.template:

@@ -334,7 +334,7 @@ nomad-infra/
     │   ├── consul_servers.yaml           # Consul server configuration
     │   ├── consul_clients.yaml           # Consul client configuration
     │   ├── consul_acl_bootstrap.yaml     # Consul ACL bootstrap
-    │   ├── consul_acl_remove_anonymous.yaml  # Remove Consul anonymous token
+    │   ├── consul_acl_deny_anonymous.yaml    # Deny Consul anonymous token
     │   ├── consul_nomad_integration.yaml # Consul-Nomad integration orchestrator
     │   ├── consul_nomad_service_discovery.yaml  # Consul ACL policies + Nomad tokens
     │   ├── consul_nomad_workload_identity.yaml  # JWT auth method + binding rules

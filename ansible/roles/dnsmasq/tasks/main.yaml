@@ -69,6 +69,22 @@
   notify: Restart dnsmasq
   tags: dnsmasq_config
 
+- name: Slurp rendered dnsmasq.conf for debug
+  become: true
+  ansible.builtin.slurp:
+    src: "{{ dnsmasq_conf_file }}"
+  register: _dnsmasq_conf_content
+  changed_when: false
+  tags:
+    - debug_config
+
+- name: Print rendered dnsmasq.conf
+  ansible.builtin.debug:
+    msg: "{{ _dnsmasq_conf_content.content | b64decode }}"
+    verbosity: 1
+  tags:
+    - debug_config
+
 - name: Write Consul DNS forwarding configuration
   become: true
   ansible.builtin.template:
@@ -79,6 +95,22 @@
     group: root
   notify: Restart dnsmasq
   tags: dnsmasq_config
+
+- name: Slurp rendered 10-consul for debug
+  become: true
+  ansible.builtin.slurp:
+    src: "{{ dnsmasq_conf_dir }}/10-consul"
+  register: _dnsmasq_consul_content
+  changed_when: false
+  tags:
+    - debug_config
+
+- name: Print rendered 10-consul
+  ansible.builtin.debug:
+    msg: "{{ _dnsmasq_consul_content.content | b64decode }}"
+    verbosity: 1
+  tags:
+    - debug_config
 
 # ── /etc/resolv.conf ─────────────────────────────────────────────────────────
 

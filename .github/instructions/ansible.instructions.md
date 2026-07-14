@@ -28,12 +28,14 @@ applyTo: "ansible/**"
 - New roles must follow the existing structure: `defaults/`, `handlers/`, `meta/`, `tasks/`, `templates/`, `vars/`.
 - Use `hashicorp_release` role to install any HashiCorp binary (passes `hashicorp_release_product_name` and `hashicorp_release_product_version`).
 - Galaxy `galaxy_tags` entries must be **lowercase alphanumeric only** — no underscores or hyphens. `ansible-lint` (`meta-no-tags` rule) will reject `service_discovery`; use `servicediscovery`.
+- **`ansible.builtin.import_playbook` cannot pass variables.** To set scenario-specific variable overrides for a sub-playbook, add them to that sub-playbook's own `vars:` block (e.g. `ansible/playbooks/nomad_clients.yaml`). Do not attempt to pass variables from the top-level entrypoint.
 
 ## HashiCorp Config Validation
 
-- After writing any HashiCorp HCL config template (`nomad.hcl`, `consul.hcl`, etc.), always add a task that runs `<binary> validate <config_dir>` before notifying a restart. This catches broken HCL before it causes a service outage.
-- Tag the validate step with `*_validate` (e.g. `consul_validate`, `nomad_validate`) so operators can run `--tags consul_validate` to check config without restarting.
+- After writing the Consul HCL config template (`consul.hcl`), always add a task that runs `consul validate <config_dir>` before notifying a restart. This catches broken HCL before it causes a service outage.
+- Tag the validate step with `consul_validate` so operators can run `--tags consul_validate` to check config without restarting.
 - Example: `command: consul validate {{ consul_config_dir }}`
+- **Nomad has no equivalent agent config validation command.** `nomad validate` validates job specifications only — do not use it for agent configs. The `nomad_validate` tag and any `nomad validate` tasks should not be added to Nomad role tasks.
 
 ## Systemd Unit Patterns
 

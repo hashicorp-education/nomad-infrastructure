@@ -73,6 +73,12 @@ client {
     ]
   }
 {% endif %}
+{% if nomad_consul_integration_enabled and not nomad_consul_workload_identity_enabled and nomad_client_use_consul_token %}
+
+  template {
+    use_client_consul_token = true
+  }
+{% endif %}
 }
 {% endif %}
 

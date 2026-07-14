@@ -1,0 +1,24 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Product version pins — edit this file to upgrade Nomad, Consul, or CNI plugins.
+#
+# These variables override the per-role defaults/ values and are visible to
+# every role and playbook in this project. Ansible resolves group_vars/all.yaml
+# relative to inventory.ini (ansible/inventory.ini), so this file is loaded
+# automatically for every host in every play.
+#
+# To pin a specific version, set the value to the desired release tag.
+# To fall back to a role's own default, remove or comment out the variable.
+#
+# Precedence (low → high):
+#   role defaults/  <  group_vars/all.yaml (this file)  <  playbook vars  <  -e
+
+# HashiCorp Nomad — https://releases.hashicorp.com/nomad
+nomad_binary_version: "2.0.4"
+
+# HashiCorp Consul — https://releases.hashicorp.com/consul
+consul_binary_version: "2.0.1"
+
+# CNI plugins — https://github.com/containernetworking/plugins/releases
+cni_plugins_version: "1.9.1"

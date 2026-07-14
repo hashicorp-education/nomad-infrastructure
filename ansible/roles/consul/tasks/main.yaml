@@ -101,6 +101,23 @@
   changed_when: false
   tags: consul_validate
 
+- name: Slurp rendered consul.hcl for debug
+  become: true
+  ansible.builtin.slurp:
+    src: "{{ consul_config_dir }}/consul.hcl"
+  register: _consul_hcl_content
+  changed_when: false
+  tags:
+    - debug_config
+
+- name: Print rendered consul.hcl
+  ansible.builtin.debug:
+    msg: "{{ _consul_hcl_content.content | b64decode }}"
+    verbosity: 1
+  when: not consul_gossip_encryption_enabled | bool
+  tags:
+    - debug_config
+
 - name: Write Consul systemd service file
   become: true
   ansible.builtin.template:

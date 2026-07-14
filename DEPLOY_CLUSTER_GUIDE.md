@@ -105,23 +105,39 @@ cd terraform/aws
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Edit `terraform.tfvars`:
+Edit `terraform.tfvars` to use values specific to your deployment. We tested
+this installation process with an Ubuntu 24.04 AMI.
+
+**Important values**
+
+- `aws_region`
+- `owner`
+- `allowed_ssh_cidr`
+- `ami_owner`
+- `ami_name_filter`
+
 
 ```hcl
-aws_region           = "us-east-2"
+aws_region           = "<aws-region>"
 project_name         = "nomad-consul"
-owner                = "your-name"
+owner                = "<your-name>"
 environment          = "dev"
 
+# Network configuration
 vpc_cidr             = "10.0.0.0/16"
 subnet_cidr          = "10.0.1.0/24"
-
 # IMPORTANT: restrict to your IP
 allowed_ssh_cidr     = "<your-ip>/32"
 
+# AMI configuration
+ami_owner     = "099720109477" # Canonical
+ami_name_filter     = "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"
+ami_architecture     = "x86_64"
+
+# Instance configuration
 server_count         = 3   # Use odd numbers: 3, 5, or 7
 client_count         = 2
-server_instance_type = "t3.medium"
+server_instance_type = "t3.micro"
 client_instance_type = "t3.medium"
 ```
 
@@ -139,7 +155,7 @@ Downloads the AWS, Local, Null, and TLS providers.
 terraform plan
 ```
 
-Expect Terraform to create ~18 resources. Review instance types, counts, and security group rules before proceeding.
+Expect Terraform to create approximately 18 resources. Review instance types, counts, and security group rules before proceeding.
 
 ### Step 4: Apply
 
@@ -147,7 +163,7 @@ Expect Terraform to create ~18 resources. Review instance types, counts, and sec
 terraform apply
 ```
 
-Type `yes` when prompted. Duration: ~five minutes.
+Type `yes` when prompted. Duration: approximately five minutes.
 
 **What Terraform creates:**
 
@@ -174,6 +190,8 @@ terraform output ssh_commands
 
 ### Step 6: Verify SSH connectivity
 
+Before you verify connectivity, make sure your AWS VM instances are running.
+
 ```bash
 cd ../../ansible
 ansible all -m ping
@@ -192,11 +210,11 @@ ansible all -m ping -vvv
 
 Run all commands from the `ansible/` directory with `-i inventory.ini`.
 
-```bash
-cd ansible
-```
-
-Four use case entrypoints cover the most common deployment scenarios. Each one runs `common_setup` first (configures all hosts, tests Ansible connectivity), then executes the required sub-playbooks in order, and finishes with a `cluster_summary` that prints tokens and ready-to-paste `export` commands.
+Four use case entrypoints cover the most common deployment scenarios. Each one
+first runs `common_setup`, which tests Ansible connectivity and configures all
+hosts. Then the process executes the required sub-playbooks in order and
+finishes with a `cluster_summary` that prints tokens and ready-to-paste `export`
+commands. ACLs are enabled, and the playbooks create the bootstrap tokens.
 
 Choose the option that matches your requirements.
 
@@ -204,7 +222,12 @@ Choose the option that matches your requirements.
 
 ### Option A: Consul cluster only — `deploy_consul.yaml`
 
-Deploys Consul servers and clients, bootstraps Consul ACL, and configures dnsmasq for `.consul` DNS forwarding on all nodes. Use this when you need only Consul for service discovery or service mesh without Nomad.
+Deploys Consul servers and clients, bootstraps Consul ACL, and configures
+dnsmasq for `.consul` DNS forwarding on all nodes. Use this when you need only
+Consul for service discovery or service mesh without Nomad.
+
+Set Consul version and other variables in
+[`ansible/group_vars/all.yaml`](ansible/group_vars/all.yaml) before running:
 
 ```bash
 ansible-playbook -i inventory.ini deploy_consul.yaml
@@ -223,11 +246,21 @@ Sub-playbooks executed in order:
 
 Duration: ~10 minutes.
 
+If the process encounters issues, refer to the [Troubleshooting
+section](#troubleshooting).
+
+You can run the `teardown.yaml` playbook to remove what Ansible deployed on the
+servers. Then run `unset-cluster-env.sh` to remove the environment variables
+from your terminal.
+
 ---
 
 ### Option B: Nomad cluster only — `deploy_nomad.yaml`
 
 Deploys Nomad servers and clients and bootstraps Nomad ACL. No Consul integration. Use this when you need only Nomad for workload orchestration.
+
+Set Nomad and CNI plugin versions in
+[`ansible/group_vars/all.yaml`](ansible/group_vars/all.yaml) before running:
 
 ```bash
 ansible-playbook -i inventory.ini deploy_nomad.yaml
@@ -245,11 +278,24 @@ Sub-playbooks executed in order:
 
 Duration: ~10 minutes.
 
+If the process encounters issues, refer to the [Troubleshooting
+section](#troubleshooting).
+
+You can run the `teardown.yaml` playbook to remove what Ansible deployed on the
+servers. Then run `unset-cluster-env.sh` to remove the environment variables
+from your terminal.
+
 ---
 
 ### Option C: Consul + Nomad with service discovery — `deploy_consul_nomad_sd.yaml`
 
-Deploys a full Consul cluster and a full Nomad cluster, then creates Consul ACL policies and scoped agent tokens for Nomad server and client agents. Reconfigures all Nomad agents with a `consul { address token }` block so Nomad uses Consul for service registration and health checks.
+Deploys a full Consul cluster and a full Nomad cluster, then creates Consul ACL
+policies and scoped agent tokens for Nomad server and client agents.
+Reconfigures all Nomad agents with a `consul { address token }` block so Nomad
+uses Consul for service registration and health checks.
+
+Set Consul, Nomad, and CNI plugin versions in
+[`ansible/group_vars/all.yaml`](ansible/group_vars/all.yaml) before running:
 
 ```bash
 ansible-playbook -i inventory.ini deploy_consul_nomad_sd.yaml
@@ -280,11 +326,20 @@ To add workload identity to this deployment later:
 ansible-playbook -i inventory.ini playbooks/consul_nomad_workload_identity.yaml
 ```
 
+If the process encounters issues, refer to the [Troubleshooting
+section](#troubleshooting).
+
+You can run the `teardown.yaml` playbook to remove what Ansible deployed on the
+servers. Then run `unset-cluster-env.sh` to remove the environment variables
+from your terminal.
 ---
 
 ### Option D: Consul + Nomad with service discovery and workload identity — `deploy_consul_nomad_wi.yaml`
 
 Extends Option C by configuring a Consul JWT auth method that validates Nomad workload JWTs, and adding `service_identity` and `task_identity` blocks to the Nomad server configuration. Nomad services and tasks automatically exchange a short-lived JWT for a scoped Consul ACL token at runtime. No static secrets are required in job files.
+
+Set Consul, Nomad, and CNI plugin versions in
+[`ansible/group_vars/all.yaml`](ansible/group_vars/all.yaml) before running:
 
 ```bash
 ansible-playbook -i inventory.ini deploy_consul_nomad_wi.yaml
@@ -309,9 +364,16 @@ consul acl auth-method list
 # Expected output includes: nomad-workloads
 ```
 
+If the process encounters issues, refer to the [Troubleshooting
+section](#troubleshooting).
+
+You can run the `teardown.yaml` playbook to remove what Ansible deployed on the
+servers. Then run `unset-cluster-env.sh` to remove the environment variables
+from your terminal.
+
 ---
 
-### Post-deployment: set environment variables
+## Post-deployment: set environment variables
 
 After any deployment, source the helper script to export all environment variables automatically:
 
@@ -320,179 +382,30 @@ cd ansible
 source ./set-cluster-env.sh
 ```
 
-The script reads the first server IP from `inventory.ini` and token values from `ansible/tokens/`. It only exports variables whose token files exist, so it works correctly for all four options.
-
----
-
-### Advanced: run individual layers
-
-You can run individual sub-playbooks directly for targeted operations, such as re-deploying only the Consul servers or re-running ACL bootstrap after a reset.
-
-#### Consul layer
-
-```bash
-ansible-playbook -i inventory.ini playbooks/consul_servers.yaml
-ansible-playbook -i inventory.ini playbooks/consul_clients.yaml
-ansible-playbook -i inventory.ini playbooks/consul_acl_bootstrap.yaml
-ansible-playbook -i inventory.ini playbooks/dnsmasq.yaml
-```
-
-Roles applied by `consul_servers` (in order):
-
-| Role | Purpose |
-|------|---------|
-| `common` | Sets hostname, installs base packages |
-| `geerlingguy.docker` | Installs Docker CE; adds `ubuntu` user to the docker group |
-| `helper` | Installs apt packages: jq, net-tools, unzip, nano, curl |
-| `consul` | Installs Consul 2.0.1; writes `/etc/consul.d/consul.hcl`; creates systemd unit; starts service |
-
-Key configuration values applied by `consul_servers`:
-
-| Setting | Value |
-|---------|-------|
-| Mode | Server |
-| `bootstrap_expect` | `{{ groups['servers'] \| length }}` |
-| Datacenter | `dc1` |
-| Cloud Auto-Join tag | `AutoJoinRole=server` |
-| ACLs | Enabled |
-| TLS | Disabled (set `consul_tls_enabled: true` to enable) |
-
-Post-task: waits for Consul HTTP API on `127.0.0.1:8500`, then prints the UI URL.
-
-Roles applied by `consul_clients` (in order):
-
-| Role | Purpose |
-|------|---------|
-| `common` | Sets hostname, installs base packages |
-| `geerlingguy.docker` | Installs Docker CE; adds `ubuntu` user to the docker group |
-| `helper` | Installs apt packages: jq, net-tools, unzip, nano, curl |
-| `consul` | Installs Consul 2.0.1 in client mode; Cloud Auto-Join finds servers via `AutoJoinRole=server` tag |
-
-Key configuration values applied by `consul_clients`:
-
-| Setting | Value |
-|---------|-------|
-| Mode | Client |
-| Cloud Auto-Join tag | `AutoJoinRole=server` |
-| ACLs | Disabled on clients by default |
-| TLS | Disabled |
-
-#### Nomad layer
-
-```bash
-ansible-playbook -i inventory.ini playbooks/nomad_servers.yaml
-ansible-playbook -i inventory.ini playbooks/nomad_clients.yaml
-ansible-playbook -i inventory.ini playbooks/nomad_acl_bootstrap.yaml
-```
-
-Roles applied by `nomad_servers` (in order):
-
-| Role | Purpose |
-|------|---------|
-| `common` | Sets hostname, installs base packages |
-| `tls` | Generates self-signed TLS certificates on the control machine (only when `nomad_tls_enabled: true`) |
-| `helper` | Installs build-essential, git, jq, net-tools, unzip, nano; copies TLS certs to `/etc/nomad.d/.tls/` when TLS is enabled |
-| `nomad` | Installs Nomad 2.0.3; writes `/etc/nomad.d/nomad.hcl`; creates systemd unit; starts service |
-
-Key configuration values applied by `nomad_servers`:
-
-| Setting | Value |
-|---------|-------|
-| Mode | Server |
-| `bootstrap_expect` | `{{ groups['servers'] \| length }}` |
-| `server_join.retry_join` | Static list of server private IPs from `[servers]` inventory group |
-| Cloud Auto-Join | Disabled (static join used instead) |
-| ACLs | Enabled |
-| TLS | Disabled (set `nomad_tls_enabled: true` to enable) |
-| Log level | DEBUG |
-
-Post-task: waits for Nomad HTTP API on port 4646.
-
-Roles applied by `nomad_clients` (in order):
-
-| Role | Purpose |
-|------|---------|
-| `cni` | Installs CNI plugins (Ubuntu only) |
-| `geerlingguy.docker` | Installs Docker CE |
-| `tls` | Generates TLS certs (only when `nomad_tls_enabled: true`) |
-| `helper` | Installs packages; loads `bridge` kernel module; copies TLS certs |
-| `nomad` | Installs Nomad 2.0.3 in client mode |
-
-Key configuration values applied by `nomad_clients`:
-
-| Setting | Value |
-|---------|-------|
-| Mode | Client |
-| `server_join.retry_join` | Static list of server private IPs from `[servers]` inventory group |
-| Cloud Auto-Join | Disabled |
-| ACLs | Enabled |
-| TLS | Disabled |
-| Log level | DEBUG |
-
-Post-task: waits for Nomad HTTP API on port 4646.
-
----
-
-## Phase 3: ACL bootstrap (for individual layer deployments)
-
-> **Note:** ACL bootstrap is included automatically in all four use case entrypoints (`deploy_consul.yaml`, `deploy_nomad.yaml`, `deploy_consul_nomad_sd.yaml`, `deploy_consul_nomad_wi.yaml`). Only run these playbooks separately if you deployed Consul or Nomad using individual layer playbooks from the [Advanced section](#advanced-run-individual-layers).
-
-The bootstrap must be run **once**, after the cluster is first formed.
-
-### Consul ACL bootstrap
-
-```bash
-ansible-playbook -i inventory.ini playbooks/consul_acl_bootstrap.yaml
-```
-
-Targets `servers[0]` (first server only). Calls `consul acl bootstrap`, saves the management token locally (mode 0600), and exits cleanly on re-runs.
-
-**Output files** (on the Ansible control machine):
-
-| File | Contents |
-|------|----------|
-| `ansible/tokens/consul-bootstrap-token-output.txt` | Full bootstrap output + usage notes |
-| `ansible/tokens/consul-bootstrap-secret-id.txt` | SecretID only, for scripting |
-
-**Use the token:**
-
-```bash
-export CONSUL_HTTP_TOKEN=$(cat ansible/tokens/consul-bootstrap-secret-id.txt)
-consul members
-consul acl token read -self
-```
-
-### Nomad ACL bootstrap
-
-```bash
-ansible-playbook -i inventory.ini playbooks/nomad_acl_bootstrap.yaml
-```
-
-Targets `servers[0]`. Calls `nomad acl bootstrap`, saves the management token locally (mode 0600), and exits cleanly on re-runs.
-
-**Output files** (on the Ansible control machine):
-
-| File | Contents |
-|------|----------|
-| `ansible/tokens/nomad-bootstrap-token-output.txt` | Full bootstrap output + usage notes |
-| `ansible/tokens/nomad-bootstrap-secret-id.txt` | SecretID only, for scripting |
-
-**Use the token:**
-
-```bash
-export NOMAD_TOKEN=$(cat ansible/tokens/nomad-bootstrap-secret-id.txt)
-nomad server members
-nomad acl token self
-```
+The script reads the first server IP from `inventory.ini` and token values from
+`ansible/tokens/`. It only exports variables whose token files exist, so it
+works correctly for all four options.
 
 ---
 
 ## Post-deployment verification
 
-SSH to a server to run the verification commands:
+After you have set your environment variables, run the verification commands from
+your local terminal.
+
+You can also SSH to a server to run the verification commands. If you choose
+this option, you must export the environment tokens after you SSH into
+the server.
 
 ```bash
-ssh -i ansible/ssh_key.pem ubuntu@<server-public-ip>
+ssh -o 'IdentitiesOnly=yes' -i ansible/ssh_key.pem ubuntu@<server-public-ip>
+```
+
+Then set the environment variables.
+
+```bash
+CONSUL_HTTP_TOKEN=<paste-value-from-consul-bootstrap-secret-id.txt>
+NOMAD_TOKEN=<paste-value-from-nomad-bootstrap-secret-id.txt>
 ```
 
 ### Verify Consul
@@ -535,41 +448,68 @@ nomad node status
 | Consul UI | `http://<server-public-ip>:8500/ui` |
 | Nomad UI | `http://<server-public-ip>:4646` |
 
-### Run a test Nomad job
+Use the bootstrap token values to log into the UIs. Find the values in these files:
+
+- Consul: `ansible/tokens/consul-bootstrap-secret-id.txt`
+- Nomad: `ansible/tokens/nomad-bootstrap-secret-id.txt`
+
+## Deploy a Nomad job
+
+The job specification files for the example Countdash app are located in the
+root-level `nomad-jobs` directory. The app has a web UI that connects to an API
+on the server.  The Terraform process added the ports to the AWS security group.
+
+### Deploy the app with Nomad for service discovery
+
+This Countdash version uses Nomad for service discovery. Refer to the [Configure
+service discovery
+documentation](https://developer.hashicorp.com/nomad/docs/job-declare/service-discovery)
+for more information.
+
+Change to the `nomad-jobs` directory and deploy the job.
 
 ```bash
-cat > example.nomad << 'EOF'
-job "example" {
-  datacenters = ["dc1"]
-  type        = "service"
-
-  group "web" {
-    count = 2
-
-    task "nginx" {
-      driver = "docker"
-
-      config {
-        image = "nginx:latest"
-        ports = ["http"]
-      }
-
-      resources {
-        cpu    = 100
-        memory = 128
-      }
-    }
-
-    network {
-      port "http" { to = 80 }
-    }
-  }
-}
-EOF
-
-nomad job run example.nomad
-nomad job status example
+nomad job run countdash-nomad-service-discovery.nomad.hcl
+nomad job status countdash
 ```
+
+Find the Countdash web application's public IP and port.
+
+```bash
+nomad service info -json countdash-web
+```
+
+The `Address` field contains the public URL, and the `Port` field
+contains the port. Access the Countdash web UI at `http://<Address>:<Port>`.
+
+Purge the job with `nomad job stop --purge countdash`.
+
+### Deploy the app with Consul for service discovery
+
+This Countdash version uses Consul for service discovery. Refer to the [Configure
+service discovery
+documentation](https://developer.hashicorp.com/nomad/docs/job-declare/service-discovery)
+for more information.
+
+Change to the `nomad-jobs` directory and deploy the job.
+
+```bash
+nomad job run countdash-consul-service-discovery.nomad.hcl
+nomad job status countdash
+```
+
+Use the Consul API to find the Countdash public address. To execute the
+following command, make sure you have done the following:
+
+- Set the [post-deployment environment variables](#post-deployment-set-environment-variables)
+- Installed [curl v8.3.0 or later](https://curl.se/)
+- Installed [jq](https://jqlang.org/) to process the JSON response
+
+```bash
+curl --variable '%CONSUL_HTTP_ADDR' --variable '%CONSUL_HTTP_TOKEN' --expand-url "{{CONSUL_HTTP_ADDR}}/v1/catalog/service/countdash-web?passing" --expand-header "X-Consul-Token: {{CONSUL_HTTP_TOKEN}}"  | jq -r '.[] | "\(.ServiceAddress):\(.ServicePort)"'
+```
+
+The result displays the public URL.
 
 ---
 
@@ -638,6 +578,27 @@ sudo journalctl -u consul -f
 sudo journalctl -u nomad -f
 ```
 
+### Inspect the rendered configuration files
+
+All configuration templates write their output to the remote host before the
+service starts. Use the `debug_config` tag to read those files back to your
+terminal and confirm the rendered values match your expectations.
+
+```bash
+# Print rendered configs for all roles in a full deployment run
+ansible-playbook -i inventory.ini ansible/deploy_consul_nomad_sd.yaml --tags debug_config -v
+
+# Inspect individual layers
+ansible-playbook -i inventory.ini ansible/playbooks/nomad_servers.yaml --tags debug_config -v
+ansible-playbook -i inventory.ini ansible/playbooks/nomad_clients.yaml --tags debug_config -v
+ansible-playbook -i inventory.ini ansible/playbooks/consul_servers.yaml --tags debug_config -v
+ansible-playbook -i inventory.ini ansible/playbooks/consul_clients.yaml --tags debug_config -v
+```
+
+The `-v` flag activates the debug output. Without it, the slurp tasks still run
+but output is suppressed. The `consul.hcl` print task is automatically
+suppressed when gossip encryption is enabled to avoid leaking the gossip key.
+
 ### Terraform: duplicate key pair error
 
 ```bash
@@ -648,6 +609,175 @@ aws ec2 delete-key-pair --key-name nomad-consul-key
 ### Terraform: InsufficientInstanceCapacity
 
 Try a different availability zone or instance type (for example, `t3a.medium`), or wait a few minutes and retry.
+
+---
+
+## Advanced: run individual layers
+
+You can run individual sub-playbooks directly for targeted operations, such as re-deploying only the Consul servers or re-running ACL bootstrap after a reset.
+
+### Consul layer
+
+```bash
+ansible-playbook -i inventory.ini playbooks/consul_servers.yaml
+ansible-playbook -i inventory.ini playbooks/consul_clients.yaml
+ansible-playbook -i inventory.ini playbooks/consul_acl_bootstrap.yaml
+ansible-playbook -i inventory.ini playbooks/dnsmasq.yaml
+```
+
+Roles applied by `consul_servers` (in order):
+
+| Role | Purpose |
+|------|---------|
+| `common` | Sets hostname, installs base packages |
+| `geerlingguy.docker` | Installs Docker CE; adds `ubuntu` user to the docker group |
+| `helper` | Installs apt packages: jq, net-tools, unzip, nano, curl |
+| `consul` | Installs Consul 2.0.1; writes `/etc/consul.d/consul.hcl`; creates systemd unit; starts service |
+
+Key configuration values applied by `consul_servers`:
+
+| Setting | Value |
+|---------|-------|
+| Mode | Server |
+| `bootstrap_expect` | `{{ groups['servers'] \| length }}` |
+| Datacenter | `dc1` |
+| Cloud Auto-Join tag | `AutoJoinRole=server` |
+| ACLs | Enabled |
+| TLS | Disabled (set `consul_tls_enabled: true` to enable) |
+
+Post-task: waits for Consul HTTP API on `127.0.0.1:8500`, then prints the UI URL.
+
+Roles applied by `consul_clients` (in order):
+
+| Role | Purpose |
+|------|---------|
+| `common` | Sets hostname, installs base packages |
+| `geerlingguy.docker` | Installs Docker CE; adds `ubuntu` user to the docker group |
+| `helper` | Installs apt packages: jq, net-tools, unzip, nano, curl |
+| `consul` | Installs Consul 2.0.1 in client mode; Cloud Auto-Join finds servers via `AutoJoinRole=server` tag |
+
+Key configuration values applied by `consul_clients`:
+
+| Setting | Value |
+|---------|-------|
+| Mode | Client |
+| Cloud Auto-Join tag | `AutoJoinRole=server` |
+| ACLs | Disabled on clients by default |
+| TLS | Disabled |
+
+### Nomad layer
+
+```bash
+ansible-playbook -i inventory.ini playbooks/nomad_servers.yaml
+ansible-playbook -i inventory.ini playbooks/nomad_clients.yaml
+ansible-playbook -i inventory.ini playbooks/nomad_acl_bootstrap.yaml
+```
+
+Roles applied by `nomad_servers` (in order):
+
+| Role | Purpose |
+|------|---------|
+| `common` | Sets hostname, installs base packages |
+| `tls` | Generates self-signed TLS certificates on the control machine (only when `nomad_tls_enabled: true`) |
+| `helper` | Installs build-essential, git, jq, net-tools, unzip, nano; copies TLS certs to `/etc/nomad.d/.tls/` when TLS is enabled |
+| `nomad` | Installs Nomad 2.0.3; writes `/etc/nomad.d/nomad.hcl`; creates systemd unit; starts service |
+
+Key configuration values applied by `nomad_servers`:
+
+| Setting | Value |
+|---------|-------|
+| Mode | Server |
+| `bootstrap_expect` | `{{ groups['servers'] \| length }}` |
+| `server_join.retry_join` | Static list of server private IPs from `[servers]` inventory group |
+| Cloud Auto-Join | Disabled (static join used instead) |
+| ACLs | Enabled |
+| TLS | Disabled (set `nomad_tls_enabled: true` to enable) |
+| Log level | DEBUG |
+
+Post-task: waits for Nomad HTTP API on port 4646.
+
+Roles applied by `nomad_clients` (in order):
+
+| Role | Purpose |
+|------|---------|
+| `cni` | Installs CNI plugins (Ubuntu only) |
+| `geerlingguy.docker` | Installs Docker CE |
+| `tls` | Generates TLS certs (only when `nomad_tls_enabled: true`) |
+| `helper` | Installs packages; loads `bridge` kernel module; copies TLS certs |
+| `nomad` | Installs Nomad 2.0.3 in client mode |
+
+Key configuration values applied by `nomad_clients`:
+
+| Setting | Value |
+|---------|-------|
+| Mode | Client |
+| `server_join.retry_join` | Static list of server private IPs from `[servers]` inventory group |
+| Cloud Auto-Join | Disabled |
+| ACLs | Enabled |
+| TLS | Disabled |
+| Log level | DEBUG |
+
+Post-task: waits for Nomad HTTP API on port 4646.
+
+---
+
+
+## Phase 3: ACL bootstrap (for individual layer deployments)
+
+> [!IMPORTANT]
+> ACL bootstrap is included automatically in all four use case
+> entrypoints (`deploy_consul.yaml`, `deploy_nomad.yaml`,
+> `deploy_consul_nomad_sd.yaml`, `deploy_consul_nomad_wi.yaml`). Only run these
+> playbooks separately if you deployed Consul or Nomad using individual layer
+> playbooks from the [Advanced section](#advanced-run-individual-layers).
+
+The bootstrap must be run **once**, after the cluster is first formed.
+
+### Consul ACL bootstrap
+
+```bash
+ansible-playbook -i inventory.ini playbooks/consul_acl_bootstrap.yaml
+```
+
+Targets `servers[0]` (first server only). Calls `consul acl bootstrap`, saves the management token locally (mode 0600), and exits cleanly on re-runs.
+
+**Output files** (on the Ansible control machine):
+
+| File | Contents |
+|------|----------|
+| `ansible/tokens/consul-bootstrap-token-output.txt` | Full bootstrap output + usage notes |
+| `ansible/tokens/consul-bootstrap-secret-id.txt` | SecretID only, for scripting |
+
+**Use the token:**
+
+```bash
+export CONSUL_HTTP_TOKEN=$(cat ansible/tokens/consul-bootstrap-secret-id.txt)
+consul members
+consul acl token read -self
+```
+
+### Nomad ACL bootstrap
+
+```bash
+ansible-playbook -i inventory.ini playbooks/nomad_acl_bootstrap.yaml
+```
+
+Targets `servers[0]`. Calls `nomad acl bootstrap`, saves the management token locally (mode 0600), and exits cleanly on re-runs.
+
+**Output files** (on the Ansible control machine):
+
+| File | Contents |
+|------|----------|
+| `ansible/tokens/nomad-bootstrap-token-output.txt` | Full bootstrap output + usage notes |
+| `ansible/tokens/nomad-bootstrap-secret-id.txt` | SecretID only, for scripting |
+
+**Use the token:**
+
+```bash
+export NOMAD_TOKEN=$(cat ansible/tokens/nomad-bootstrap-secret-id.txt)
+nomad server members
+nomad acl token self
+```
 
 ---
 

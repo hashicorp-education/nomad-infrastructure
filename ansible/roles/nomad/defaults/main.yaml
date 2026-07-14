@@ -79,3 +79,11 @@ nomad_consul_service_identity_ttl: "1h"
 # Nomad servers inject this identity into tasks that use a consul block.
 nomad_consul_task_identity_aud: "consul.io"
 nomad_consul_task_identity_ttl: "1h"
+
+# Consul token fallback for client template blocks (Nomad 2.0.4+).
+# Set to true when using Consul integration WITHOUT workload identity
+# (deploy_consul_nomad_sd.yaml scenario) and jobs use template blocks that
+# read Consul KV or services. Corresponds to client.template.use_client_consul_token.
+# Has no effect unless nomad_consul_integration_enabled is true and
+# nomad_consul_workload_identity_enabled is false.
+nomad_client_use_consul_token: false

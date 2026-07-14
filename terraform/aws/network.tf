@@ -91,6 +91,22 @@ resource "aws_security_group" "nomad_consul_sg" {
     description = "Nomad UI and HTTP API"
   }
 
+# Countdash example app web UI
+  ingress {
+    from_port   = 9002
+    to_port     = 9002
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Countdash example app - web UI"
+  }
+
+  ingress {
+    from_port   = 9001
+    to_port     = 9001
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Countdash example app - API"
+  }
 
   # Allow all internal traffic
   ingress {
@@ -109,6 +125,8 @@ resource "aws_security_group" "nomad_consul_sg" {
     cidr_blocks = ["0.0.0.0/0"]
     description = "Allow all outbound traffic"
   }
+
+  
 
   tags = {
     Name  = "${var.project_name}-sg"

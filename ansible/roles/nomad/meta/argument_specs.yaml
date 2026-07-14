@@ -114,3 +114,15 @@ argument_specs:
         required: false
         default: "1h"
         description: TTL for the default Consul task workload identity token.
+
+      nomad_client_use_consul_token:
+        type: bool
+        required: false
+        default: false
+        description: >-
+          When true, sets client.template.use_client_consul_token = true in the
+          Nomad client configuration, allowing template blocks to use the Nomad
+          client agent's own Consul ACL token. Only effective when
+          nomad_consul_integration_enabled is true and
+          nomad_consul_workload_identity_enabled is false (service-discovery
+          scenario). Introduced in Nomad 2.0.4.

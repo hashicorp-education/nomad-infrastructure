@@ -70,7 +70,7 @@ ansible/
 │   ├── consul_servers.yaml
 │   ├── consul_clients.yaml
 │   ├── consul_acl_bootstrap.yaml
-│   ├── consul_acl_remove_anonymous.yaml
+│   ├── consul_acl_deny_anonymous.yaml
 │   ├── consul_nomad_integration.yaml
 │   ├── consul_nomad_service_discovery.yaml
 │   ├── consul_nomad_workload_identity.yaml
@@ -297,6 +297,13 @@ ansible-galaxy install -r requirements.yaml
 
 ## Configuration variables
 
+### Version variables
+
+To pin Nomad, Consul, or CNI plugin versions, edit
+[`ansible/group_vars/all.yaml`](group_vars/all.yaml). This file is the single
+source of truth for product versions and takes precedence over the per-role
+`defaults/` values.
+
 ### Nomad role variables
 
 Located in [`roles/nomad/defaults/main.yaml`](roles/nomad/defaults/main.yaml):
@@ -331,11 +338,12 @@ These can be overridden in playbooks or via command line:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `nomad_binary_version` | `2.0.4` | Nomad version to install |
+| `nomad_binary_version` | `2.0.4` | Nomad version to install — set in [`group_vars/all.yaml`](group_vars/all.yaml) |
+| `consul_binary_version` | `2.0.1` | Consul version to install — set in [`group_vars/all.yaml`](group_vars/all.yaml) |
+| `cni_plugins_version` | `1.9.1` | CNI plugins version — set in [`group_vars/all.yaml`](group_vars/all.yaml) |
 | `nomad_log_level` | `INFO` | Logging level (DEBUG, INFO, WARN, ERROR) |
 | `nomad_acl_enabled` | `false` | Enable ACL system |
 | `nomad_cloud_auto_join_enabled` | `true` | Enable AWS cloud auto-join |
-| `cni_plugins_version` | `1.9.1` | CNI plugins version |
 
 ## Usage examples
 
@@ -576,6 +584,25 @@ ansible-playbook -i inventory.ini deploy_consul.yaml --check
 # Step through tasks
 ansible-playbook -i inventory.ini deploy_consul.yaml --step
 ```
+
+### Inspect rendered configuration files
+
+Roles tag their slurp + debug tasks with `debug_config`. Use `-v` to activate
+the debug output (tasks use `verbosity: 1` so they are silent without it).
+
+```bash
+# Print all rendered configs as part of a normal run
+ansible-playbook -i inventory.ini deploy_consul_nomad_sd.yaml -v
+
+# Print rendered configs only, without re-running the full play
+ansible-playbook -i inventory.ini deploy_consul_nomad_sd.yaml --tags debug_config -v
+
+# Inspect a single layer, e.g. after a Nomad upgrade
+ansible-playbook -i inventory.ini playbooks/nomad_clients.yaml --tags debug_config -v
+```
+
+See [PLAYBOOKS-README.md](PLAYBOOKS-README.md#inspecting-rendered-configuration-files) for a
+full list of which files are printed per role.
 
 ### Common issues
 
