@@ -33,8 +33,8 @@ The nomad role installs and configures HashiCorp Nomad v2.0.4 on both server and
 | `nomad_client_servers` | list | `[]` | List of server addresses |
 | `nomad_acl_enabled` | bool | `false` | Enable ACL system |
 | `nomad_tls_enabled` | bool | `false` | Enable TLS |
-| `nomad_telemetry_enabled` | bool | `true` | Enable telemetry |
-| `nomad_telemetry_prometheus_metrics` | bool | `true` | Enable Prometheus metrics |
+| `nomad_telemetry_enabled` | bool | `false` | Enable telemetry |
+| `nomad_telemetry_prometheus_metrics` | bool | `false` | Enable Prometheus metrics |
 | `nomad_log_level` | string | `INFO` | Logging level |
 | `nomad_log_file` | string | `/var/log/nomad.log` | Log file path |
 | `nomad_log_include_location` | bool | `false` | Include source location in logs |
@@ -46,6 +46,7 @@ The nomad role installs and configures HashiCorp Nomad v2.0.4 on both server and
 | `nomad_consul_workload_identity_enabled` | bool | `false` | Add `service_identity` and `task_identity` blocks in the `consul {}` section (Nomad servers only, requires Nomad 1.7+); set `true` after running `consul_nomad_workload_identity.yaml` |
 | `nomad_consul_address` | string | `127.0.0.1:8500` | Consul agent address |
 | `nomad_consul_agent_token` | string | `""` | Consul ACL token for Nomad agent operations |
+| `nomad_client_use_consul_token` | bool | `false` | When `true`, Nomad clients pass the Consul agent token to `template {}` blocks via `client.template.use_client_consul_token`. Set by `nomad_clients.yaml` when using service discovery without workload identity. |
 | `nomad_consul_service_identity_aud` | string | `consul.io` | Audience for service workload identities |
 | `nomad_consul_service_identity_ttl` | string | `1h` | TTL for service workload identity tokens |
 | `nomad_consul_task_identity_aud` | string | `consul.io` | Audience for task workload identities |

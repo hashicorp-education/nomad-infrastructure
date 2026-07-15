@@ -17,7 +17,7 @@ scan the headings and follow only what is relevant to the current task.
 
 ## Troubleshooting
 
-- [troubleshoot-consul-sd.md](troubleshoot-consul-sd.md) — "Counting service is unreachable" in the Countdash web UI when using Consul service discovery. Covers dnsmasq listen address verification, DNS resolution testing from inside the Docker container, cross-node TCP connectivity, and Consul health check failure due to slow JVM startup.
+- [troubleshoot-consul-sd.md](troubleshoot-consul-sd.md) — "Counting service is unreachable" in the Countdash web UI when using Consul service discovery. Covers dnsmasq listen address verification, DNS resolution testing from inside the Docker container, cross-node TCP connectivity, Consul health check failure due to slow JVM startup, and **SERVFAIL caused by a stale DNS token file from a previous cluster** (Step 5 — the most common cause after a destroy-and-rebuild cycle).
 - [consul-client-node-identity.md](consul-client-node-identity.md) — Why node identities are used (not a shared prefix policy) for Consul client agent tokens: least-privilege `node:write` scoping, no policy file to maintain, better audit trail. Covers the token-per-node file naming convention, idempotency sentinel, and the node-name-must-match constraint.
 
 ## Established patterns

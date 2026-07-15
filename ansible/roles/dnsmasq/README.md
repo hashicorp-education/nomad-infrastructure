@@ -31,7 +31,7 @@ On Ubuntu/Debian, `systemd-resolved` runs a DNS stub listener on `127.0.0.53:53`
 
 ### 2. Writes dnsmasq configuration files
 
-- `/etc/dnsmasq.conf` — binds to each address in `dnsmasq_listen_addresses` (`127.0.0.1` by default; add `172.17.0.1` for Docker containers), sets `no-resolv` (ignores `/etc/resolv.conf` for upstream), explicitly lists upstream DNS servers (AWS VPC resolver `169.254.169.253` by default), configures caching (1000 entries), and sets `domain-needed` and `bogus-priv` as safety guards.
+- `/etc/dnsmasq.conf` — binds to each address in `dnsmasq_listen_addresses` (`["127.0.0.1"]` role default; `group_vars/all.yaml` sets `["127.0.0.1", "172.17.0.1"]` so Docker task driver containers can reach dnsmasq at the bridge gateway), sets `no-resolv` (ignores `/etc/resolv.conf` for upstream), explicitly lists upstream DNS servers (AWS VPC resolver `169.254.169.253` by default), configures caching (1000 entries), and sets `domain-needed` and `bogus-priv` as safety guards.
 - `/etc/dnsmasq.d/10-consul` — the forwarding rule that sends all `.consul` queries to the local Consul agent DNS port:
 
   ```

@@ -26,6 +26,10 @@ Key variables (see `defaults/main.yaml` for the full list and defaults):
 | `consul_cloud_auto_join_tag_key` | `AutoJoinRole` | EC2 tag key for cloud auto-join |
 | `consul_cloud_auto_join_tag_value` | `server` | EC2 tag value for cloud auto-join |
 | `consul_acl_enabled` | `false` | Enable ACLs |
+| `consul_acl_default_policy` | `deny` | Default ACL policy when ACLs are enabled |
+| `consul_acl_enable_token_persistence` | `true` | Persist tokens to the agent data dir so they survive restarts |
+| `consul_acl_agent_token` | `""` | Per-node agent token written into `acl.tokens.agent`. Set by `consul_dns_token.yaml` to a node-identity token for each client. Empty by default — the `tokens {}` block is omitted when both agent and DNS tokens are unset. |
+| `consul_acl_dns_token` | `""` | Shared DNS token written into `acl.tokens.dns`. Set by `consul_dns_token.yaml`. Allows the Consul agent to answer DNS queries when ACL default-deny is active. Empty by default. |
 | `consul_tls_enabled` | `false` | Enable TLS (requires certs in `consul_tls_dir`) |
 | `consul_gossip_encryption_enabled` | `false` | Enable gossip encryption |
 | `consul_gossip_encryption_key` | `""` | Base64 gossip key (generate with `consul keygen`) |

@@ -137,6 +137,73 @@ once the JVM finishes starting.
 
 ---
 
+## Step 5 — SERVFAIL from Consul DNS (stale token file)
+
+### Symptom
+
+After running `consul_dns_token.yaml` and confirming the consul.hcl on each
+client contains `acl.tokens.dns = "<uuid>"`, `dig @127.0.0.1 -p 8600` still
+returns `status: SERVFAIL` with the `aa` (authoritative) flag set. Running
+`consul acl token list` shows no `dns-access` policy and no DNS token matching
+the UUID in the config file.
+
+### Root cause
+
+`consul_dns_token.yaml` uses `ansible/tokens/consul-dns-secret-id.txt` as an
+idempotency sentinel: if the file exists, token creation is skipped. When a
+cluster is destroyed and rebuilt without running `teardown.yaml`, the stale
+token file from the previous cluster persists. The playbook skips token
+creation, and Play 3 writes the old UUID into the new `consul.hcl`. Consul
+does not recognise the ghost token, returns a 403 for every DNS lookup, and
+DNS reports SERVFAIL.
+
+### Diagnostic confirmation
+
+```bash
+# The DNS token UUID from consul.hcl should appear here — if it does not, the
+# token was never created for this cluster
+export CONSUL_HTTP_TOKEN=$(cat ansible/tokens/consul-bootstrap-secret-id.txt)
+export CONSUL_HTTP_ADDR=http://<server-public-ip>:8500
+consul acl token list
+
+# Also confirm no dns-access policy exists
+consul acl policy list
+```
+
+If `dns-access` is absent and the UUID in `consul.hcl` does not appear in
+`consul acl token list`, the stale file is the cause.
+
+### Fix
+
+```bash
+cd ansible
+rm tokens/consul-dns-secret-id.txt
+ansible-playbook -i inventory.ini playbooks/consul_dns_token.yaml
+```
+
+After the playbook completes, verify DNS from the client:
+
+```bash
+dig @127.0.0.1 -p 8600 countdash-api.service.dc1.consul
+# Expected: status: NOERROR with an A record
+```
+
+Then restart the Nomad job to refresh the `COUNTING_SERVICE_URL` env var:
+
+```bash
+nomad job stop countdash
+nomad job run nomad-jobs/countdash-consul-service-discovery.nomad.hcl
+```
+
+### Prevention
+
+Always run `teardown.yaml` before `terraform destroy` — it removes token files
+along with the cluster software. If you skip teardown (for example, running
+`terraform destroy` directly), manually delete all files under `ansible/tokens/`
+before running the next deployment.
+
+---
+
 ## Related files
 
 - [`nomad-jobs/countdash-consul-service-discovery.nomad.hcl`](../../nomad-jobs/countdash-consul-service-discovery.nomad.hcl)

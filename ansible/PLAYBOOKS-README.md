@@ -65,8 +65,10 @@ Deploys a complete Consul cluster with ACL and DNS forwarding. Use this when you
 | 3 | `consul_servers.yaml` — Consul server agents on `[servers]` |
 | 4 | `consul_clients.yaml` — Consul client agents on `[clients]` |
 | 5 | `consul_acl_bootstrap.yaml` — bootstrap Consul ACL |
-| 6 | `dnsmasq.yaml` — configure `.consul` DNS forwarding on all nodes |
-| 7 | Cluster status summary |
+| 6 | `consul_dns_token.yaml` — create `dns-access` policy, DNS token, and per-node node-identity tokens; reconfigure Consul clients with ACL enabled |
+| 7 | `dnsmasq.yaml` — configure `.consul` DNS forwarding on all nodes |
+| 8 | `consul_acl_deny_anonymous.yaml` — deny unauthenticated requests |
+| 9 | Cluster status summary |
 
 **Usage:**
 
@@ -124,12 +126,14 @@ Deploys a full Consul cluster and a full Nomad cluster and then runs the service
 | 3 | `consul_servers.yaml` |
 | 4 | `consul_clients.yaml` |
 | 5 | `consul_acl_bootstrap.yaml` |
-| 6 | `dnsmasq.yaml` |
-| 7 | `nomad_servers.yaml` |
-| 8 | `nomad_clients.yaml` |
-| 9 | `nomad_acl_bootstrap.yaml` |
-| 10 | `consul_nomad_service_discovery.yaml` — Consul ACL policies, Nomad agent tokens, Nomad `consul {}` block |
-| 11 | Cluster status summary |
+| 6 | `consul_dns_token.yaml` — create DNS token and node-identity tokens; reconfigure clients with ACL enabled |
+| 7 | `dnsmasq.yaml` |
+| 8 | `consul_acl_deny_anonymous.yaml` |
+| 9 | `nomad_servers.yaml` |
+| 10 | `nomad_clients.yaml` |
+| 11 | `nomad_acl_bootstrap.yaml` |
+| 12 | `consul_nomad_service_discovery.yaml` — Consul ACL policies, Nomad agent tokens, Nomad `consul {}` block |
+| 13 | Cluster status summary |
 
 **Usage:**
 
@@ -160,9 +164,9 @@ Deploys everything in `deploy_consul_nomad_sd.yaml` and then adds workload ident
 
 | # | Action |
 |---|--------|
-| 1–10 | Same as `deploy_consul_nomad_sd.yaml` |
-| 11 | `consul_nomad_workload_identity.yaml` — JWT auth method, ACL binding rules, Nomad server config update |
-| 12 | Cluster status summary |
+| 1–12 | Same as `deploy_consul_nomad_sd.yaml` |
+| 13 | `consul_nomad_workload_identity.yaml` — JWT auth method, ACL binding rules, Nomad server config update |
+| 14 | Cluster status summary |
 
 **Usage:**
 
@@ -287,7 +291,7 @@ ansible-playbook -i inventory.ini playbooks/consul_clients.yaml
 | `consul_cloud_auto_join_enabled` | `true` |
 | `consul_cloud_auto_join_tag_key` | `AutoJoinRole` |
 | `consul_cloud_auto_join_tag_value` | `server` |
-| `consul_acl_enabled` | `false` |
+| `consul_acl_enabled` | `false` (ACL is enabled by `consul_dns_token.yaml` in a later step) |
 | `consul_tls_enabled` | `false` |
 
 **Post-tasks:** Waits for Consul HTTP API on `127.0.0.1:8500`.
@@ -330,7 +334,83 @@ consul acl token read -self
 
 ---
 
-### playbooks/nomad_servers.yaml
+### playbooks/consul_dns_token.yaml
+
+Creates a dedicated Consul ACL DNS token, per-node node-identity agent tokens for every Consul client, and re-runs the `consul` role on all clients with ACL enabled. This is the step that locks down the Consul cluster so that only authenticated agents can answer DNS queries.
+
+**Run automatically** by all four use case entrypoints (`deploy_consul.yaml`, `deploy_consul_nomad_sd.yaml`, `deploy_consul_nomad_wi.yaml`). Run directly to re-issue tokens after a failed deployment or stale token file situation:
+
+```bash
+ansible-playbook -i inventory.ini playbooks/consul_dns_token.yaml
+```
+
+**Target hosts (3 plays):** Play 1: `servers[0]` | Play 2: `servers` | Play 3: `clients`
+
+**Prerequisites:**
+- `consul_acl_bootstrap.yaml` completed (`ansible/tokens/consul-bootstrap-secret-id.txt` present)
+
+**Idempotency sentinels:** If `ansible/tokens/consul-dns-secret-id.txt` already exists, token creation is skipped and the stored token is re-applied. If `ansible/tokens/consul-client-agent-<clients[0]>-secret-id.txt` exists, per-node agent token creation is also skipped.
+
+> **Important:** After `terraform destroy` without running `teardown.yaml`, these sentinel files persist from the old cluster. Delete them before re-deploying or the playbook will write ghost token UUIDs into `consul.hcl`, causing SERVFAIL on every DNS query. See [_context/wiki/troubleshoot-consul-sd.md](_context/wiki/troubleshoot-consul-sd.md) for details.
+
+**Play 1 — Create tokens (on `servers[0]`, once per cluster):**
+
+1. Reads `ansible/tokens/consul-bootstrap-secret-id.txt`.
+2. Copies `ansible/files/consul/dns-policy.hcl` to a staging directory on the server.
+3. Creates Consul ACL policy `dns-access` (allows node/service/query read — required for DNS).
+4. Creates a shared DNS token linked to `dns-access`; saves SecretID to `ansible/tokens/consul-dns-secret-id.txt`.
+5. Creates one node-identity token per client (e.g. `consul acl token create -node-identity "<hostname>:dc1"`); saves each to `ansible/tokens/consul-client-agent-<hostname>-secret-id.txt`.
+
+**Play 2 — Apply DNS token to server agents:**
+
+Runs `consul acl set-agent-token dns <token>` on every Consul server (servers already have ACL enabled).
+
+**Play 3 — Reconfigure Consul client agents with ACL enabled:**
+
+1. Reads per-node agent token and DNS token from local files.
+2. Removes any legacy `dns-acl.hcl` drop-in from `/etc/consul.d/`.
+3. Re-runs the `consul` role with `consul_acl_enabled: true`, `consul_acl_agent_token`, and `consul_acl_dns_token` set.
+4. The role writes a new `consul.hcl` containing `acl { enabled = true ... tokens { agent = "..." dns = "..." } }` and restarts Consul.
+
+**Output files** (mode 0600, written to the Ansible control machine):
+
+| File | Contents |
+|------|----------|
+| `ansible/tokens/consul-dns-secret-id.txt` | SecretID of the shared DNS token |
+| `ansible/tokens/consul-client-agent-<hostname>-secret-id.txt` | SecretID of the per-node agent token for each client |
+
+**Verify after running:**
+
+```bash
+export CONSUL_HTTP_TOKEN=$(cat ansible/tokens/consul-bootstrap-secret-id.txt)
+consul acl policy list | grep dns-access          # should appear
+consul acl token list | grep dns-access            # should show the DNS token
+```
+
+---
+
+### playbooks/consul_acl_deny_anonymous.yaml
+
+Attaches a deny-all ACL policy to the Consul anonymous token. After this step, any API call or DNS query that does not carry a valid token is rejected. Run **after** `consul_dns_token.yaml` — the DNS token must exist before the anonymous token is denied, or legitimate DNS queries will break.
+
+```bash
+ansible-playbook -i inventory.ini playbooks/consul_acl_deny_anonymous.yaml
+```
+
+**Target hosts:** `servers[0]` | **Become:** no
+
+**Prerequisites:** `consul_acl_bootstrap.yaml` and `consul_dns_token.yaml` completed.
+
+**What it does:**
+
+1. Reads `ansible/tokens/consul-bootstrap-secret-id.txt`.
+2. Copies `ansible/files/consul/consul-anonymous-deny.hcl` to the server.
+3. Creates Consul ACL policy `anonymous-deny` with `node_prefix "" { policy = "deny" }` and `service_prefix "" { policy = "deny" }`.
+4. Updates the built-in anonymous token to use this policy.
+
+**Idempotent:** Re-running the playbook is safe — the policy already exists and the anonymous token already has it attached.
+
+---
 
 Installs and configures Nomad server agents on the `[servers]` inventory group. Run **after** the Consul layer is up.
 
@@ -347,7 +427,7 @@ ansible-playbook -i inventory.ini playbooks/nomad_servers.yaml
 | `common` | Sets hostname, installs base system packages |
 | `tls` | Generates self-signed TLS certificates on the control machine (skipped when `nomad_tls_enabled: false`) |
 | `helper` | Installs build-essential, git, jq, net-tools, unzip, nano; copies TLS certs to `/etc/nomad.d/.tls/` |
-| `nomad` | Installs Nomad 2.0.0, writes `/etc/nomad.d/nomad.hcl`, creates systemd unit, starts service |
+| `nomad` | Installs Nomad 2.0.4, writes `/etc/nomad.d/nomad.hcl`, creates systemd unit, starts service |
 
 **Key variables set by this playbook:**
 
@@ -386,7 +466,7 @@ ansible-playbook -i inventory.ini playbooks/nomad_clients.yaml
 | `geerlingguy.docker` | Installs Docker CE |
 | `tls` | Generates TLS certs (skipped when `nomad_tls_enabled: false`) |
 | `helper` | Installs build-essential, git, jq, net-tools, unzip; loads `bridge` kernel module; copies TLS certs |
-| `nomad` | Installs Nomad 2.0.0 in client mode, writes config, starts service |
+| `nomad` | Installs Nomad 2.0.4 in client mode, writes config, starts service |
 
 **Key variables set by this playbook:**
 
@@ -398,6 +478,7 @@ ansible-playbook -i inventory.ini playbooks/nomad_clients.yaml
 | `nomad_acl_enabled` | `true` |
 | `nomad_tls_enabled` | `false` |
 | `nomad_log_level` | `DEBUG` |
+| `nomad_client_use_consul_token` | `true` (passes the Consul agent token through to `template {}` blocks when using service discovery without workload identity) |
 
 **How Nomad clients find servers:** Same as servers — static `server_join.retry_join` list of server private IPs from the `[servers]` inventory group.
 
@@ -564,7 +645,7 @@ ansible-playbook -i inventory.ini playbooks/dnsmasq.yaml
 
 1. Installs the `dnsmasq` package
 2. Disables the `systemd-resolved` DNS stub listener (writes `/etc/systemd/resolved.conf.d/no-stub.conf`)
-3. Writes `/etc/dnsmasq.conf` — main config, binds to `127.0.0.1:53`, uses `169.254.169.253` (AWS VPC DNS) for upstream
+3. Writes `/etc/dnsmasq.conf` — main config, binds to every address in `dnsmasq_listen_addresses` (defaults: `127.0.0.1` for host processes and `172.17.0.1` for Docker task driver containers), uses `169.254.169.253` (AWS VPC DNS) for upstream
 4. Writes `/etc/dnsmasq.d/10-consul` — forwards `.consul` to `127.0.0.1:8600`
 5. Rewrites `/etc/resolv.conf` to use `127.0.0.1`
 6. Enables and starts `dnsmasq`

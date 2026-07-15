@@ -28,8 +28,10 @@ flowchart TD
     P1A --> P1B[consul_servers]
     P1B --> P1C[consul_clients]
     P1C --> P1D[consul_acl_bootstrap]
-    P1D --> P1E[dnsmasq]
-    P1E --> P1Z([cluster_summary])
+    P1D --> P1E[consul_dns_token]
+    P1E --> P1F[dnsmasq]
+    P1F --> P1G[consul_acl_deny_anonymous]
+    P1G --> P1Z([cluster_summary])
 
     UC2 --> P2A[common_setup]
     P2A --> P2B[nomad_servers]
@@ -41,24 +43,28 @@ flowchart TD
     P3A --> P3B[consul_servers]
     P3B --> P3C[consul_clients]
     P3C --> P3D[consul_acl_bootstrap]
-    P3D --> P3E[dnsmasq]
-    P3E --> P3F[nomad_servers]
-    P3F --> P3G[nomad_clients]
-    P3G --> P3H[nomad_acl_bootstrap]
-    P3H --> P3I[consul_nomad_service_discovery]
-    P3I --> P3Z([cluster_summary])
+    P3D --> P3E[consul_dns_token]
+    P3E --> P3F[dnsmasq]
+    P3F --> P3G[consul_acl_deny_anonymous]
+    P3G --> P3H[nomad_servers]
+    P3H --> P3I[nomad_clients]
+    P3I --> P3J[nomad_acl_bootstrap]
+    P3J --> P3K[consul_nomad_service_discovery]
+    P3K --> P3Z([cluster_summary])
 
     UC4 --> P4A[common_setup]
     P4A --> P4B[consul_servers]
     P4B --> P4C[consul_clients]
     P4C --> P4D[consul_acl_bootstrap]
-    P4D --> P4E[dnsmasq]
-    P4E --> P4F[nomad_servers]
-    P4F --> P4G[nomad_clients]
-    P4G --> P4H[nomad_acl_bootstrap]
-    P4H --> P4I[consul_nomad_service_discovery]
-    P4I --> P4J[consul_nomad_workload_identity]
-    P4J --> P4Z([cluster_summary])
+    P4D --> P4E[consul_dns_token]
+    P4E --> P4F[dnsmasq]
+    P4F --> P4G[consul_acl_deny_anonymous]
+    P4G --> P4H[nomad_servers]
+    P4H --> P4I[nomad_clients]
+    P4I --> P4J[nomad_acl_bootstrap]
+    P4J --> P4K[consul_nomad_service_discovery]
+    P4K --> P4L[consul_nomad_workload_identity]
+    P4L --> P4Z([cluster_summary])
 ```
 
 ## Prerequisites
@@ -241,8 +247,10 @@ Sub-playbooks executed in order:
 | 2 | `consul_servers` | `[servers]` | Installs Consul 2.0.1 in server mode; enables Cloud Auto-Join via `AutoJoinRole=server` EC2 tag; writes `/etc/consul.d/consul.hcl`; starts service; waits for port 8500 |
 | 3 | `consul_clients` | `[clients]` | Installs Consul 2.0.1 in client mode; joins server cluster via Cloud Auto-Join |
 | 4 | `consul_acl_bootstrap` | `servers[0]` | Bootstraps Consul ACL; saves management token to `ansible/tokens/consul-bootstrap-*.txt` |
-| 5 | `dnsmasq` | `all` | Installs dnsmasq; disables systemd-resolved stub listener; forwards `.consul` queries to `127.0.0.1:8600`; rewrites `/etc/resolv.conf` |
-| 6 | `cluster_summary` | `localhost` | Prints Consul bootstrap token, `export CONSUL_HTTP_ADDR` and `export CONSUL_HTTP_TOKEN` commands, and Consul UI URL |
+| 5 | `consul_dns_token` | `servers[0]` + `[clients]` | Creates `dns-access` ACL policy; creates a shared DNS token and one per-node node-identity agent token per client; applies DNS token to every Consul agent via `consul acl set-agent-token dns`; re-runs consul role on each client with `consul_acl_enabled: true` to write `acl { tokens { agent dns } }` into `consul.hcl`; saves `ansible/tokens/consul-dns-secret-id.txt` and `ansible/tokens/consul-client-agent-<hostname>-secret-id.txt` |
+| 6 | `dnsmasq` | `all` | Installs dnsmasq; disables systemd-resolved stub listener; forwards `.consul` queries to `127.0.0.1:8600`; binds to `172.17.0.1` as well so Docker containers can reach dnsmasq; rewrites `/etc/resolv.conf` |
+| 7 | `consul_acl_deny_anonymous` | `servers[0]` | Attaches a deny-all policy to the Consul anonymous token; unauthenticated API and DNS requests are rejected after this step |
+| 8 | `cluster_summary` | `localhost` | Prints Consul bootstrap token, `export CONSUL_HTTP_ADDR` and `export CONSUL_HTTP_TOKEN` commands, and Consul UI URL |
 
 Duration: approximately 10 minutes.
 
@@ -268,8 +276,8 @@ Sub-playbooks executed in order:
 | Step | Sub-playbook | Hosts | What it does |
 |------|-------------|-------|--------------|
 | 1 | `common_setup` | `all` | Configures passwordless sudo; tests Ansible connectivity (ping) |
-| 2 | `nomad_servers` | `[servers]` | Installs Nomad 2.0.3 in server mode; uses static `server_join.retry_join` with private IPs from the `[servers]` group; writes `/etc/nomad.d/nomad.hcl`; starts service; waits for port 4646 |
-| 3 | `nomad_clients` | `[clients]` | Installs Nomad 2.0.3 in client mode; installs CNI plugins (Ubuntu) and Docker CE; uses static `server_join.retry_join` |
+| 2 | `nomad_servers` | `[servers]` | Installs Nomad 2.0.4 in server mode; uses static `server_join.retry_join` with private IPs from the `[servers]` group; writes `/etc/nomad.d/nomad.hcl`; starts service; waits for port 4646 |
+| 3 | `nomad_clients` | `[clients]` | Installs Nomad 2.0.4 in client mode; installs CNI plugins (Ubuntu) and Docker CE; uses static `server_join.retry_join` |
 | 4 | `nomad_acl_bootstrap` | `servers[0]` | Bootstraps Nomad ACL; saves management token to `ansible/tokens/nomad-bootstrap-*.txt` |
 | 5 | `cluster_summary` | `localhost` | Prints Nomad bootstrap token, `export NOMAD_ADDR` and `export NOMAD_TOKEN` commands, and Nomad UI URL |
 
@@ -303,12 +311,14 @@ Sub-playbooks executed in order:
 | 2 | `consul_servers` | `[servers]` | Installs Consul 2.0.1 in server mode; enables Cloud Auto-Join |
 | 3 | `consul_clients` | `[clients]` | Installs Consul 2.0.1 in client mode; joins server cluster |
 | 4 | `consul_acl_bootstrap` | `servers[0]` | Bootstraps Consul ACL; saves management token to `ansible/tokens/` |
-| 5 | `dnsmasq` | `all` | Installs dnsmasq; configures `.consul` DNS forwarding to port 8600 |
-| 6 | `nomad_servers` | `[servers]` | Installs Nomad 2.0.3 in server mode; static `server_join.retry_join` |
-| 7 | `nomad_clients` | `[clients]` | Installs Nomad 2.0.3 in client mode; installs CNI plugins and Docker CE |
-| 8 | `nomad_acl_bootstrap` | `servers[0]` | Bootstraps Nomad ACL; saves management token to `ansible/tokens/` |
-| 9 | `consul_nomad_service_discovery` | `servers[0]` + `all` | Creates Consul ACL policies `nomad-server-policy` and `nomad-client-policy`; creates scoped agent tokens for Nomad servers and clients; saves token SecretIDs to `ansible/tokens/nomad-consul-*-secret-id.txt`; reconfigures Nomad servers and clients with `consul { address token }` block; restarts Nomad on all nodes |
-| 10 | `cluster_summary` | `localhost` | Prints all tokens, all `export` commands, and both UI URLs |
+| 5 | `consul_dns_token` | `servers[0]` + `[clients]` | Creates `dns-access` ACL policy; creates DNS token and per-node node-identity agent tokens for each client; applies DNS token to all Consul agents; reconfigures Consul clients with ACL enabled and both tokens in `consul.hcl`; saves `ansible/tokens/consul-dns-secret-id.txt` and `ansible/tokens/consul-client-agent-<hostname>-secret-id.txt` |
+| 6 | `dnsmasq` | `all` | Installs dnsmasq; configures `.consul` DNS forwarding to port 8600; binds to both `127.0.0.1` and `172.17.0.1` |
+| 7 | `consul_acl_deny_anonymous` | `servers[0]` | Attaches deny-all policy to the Consul anonymous token |
+| 8 | `nomad_servers` | `[servers]` | Installs Nomad 2.0.4 in server mode; static `server_join.retry_join` |
+| 9 | `nomad_clients` | `[clients]` | Installs Nomad 2.0.4 in client mode; installs CNI plugins and Docker CE |
+| 10 | `nomad_acl_bootstrap` | `servers[0]` | Bootstraps Nomad ACL; saves management token to `ansible/tokens/` |
+| 11 | `consul_nomad_service_discovery` | `servers[0]` + `all` | Creates Consul ACL policies `nomad-server-policy` and `nomad-client-policy`; creates scoped agent tokens for Nomad servers and clients; saves token SecretIDs to `ansible/tokens/nomad-consul-*-secret-id.txt`; reconfigures Nomad servers and clients with `consul { address token }` block; restarts Nomad on all nodes |
+| 12 | `cluster_summary` | `localhost` | Prints all tokens, all `export` commands, and both UI URLs |
 
 **Status summary includes:** Consul bootstrap token, Nomad bootstrap token, Consul agent token for Nomad servers, Consul agent token for Nomad clients, `export CONSUL_HTTP_ADDR`, `export CONSUL_HTTP_TOKEN`, `export NOMAD_ADDR`, `export NOMAD_TOKEN`, and both UI URLs.
 
@@ -341,9 +351,9 @@ Sub-playbooks executed in order:
 
 | Step | Sub-playbook | Hosts | What it does |
 |------|-------------|-------|--------------|
-| 1–9 | Same as Option C | — | Refer to Option C table |
-| 10 | `consul_nomad_workload_identity` | `servers[0]` + `[servers]` | Creates Consul ACL policy `nomad-tasks-policy`; creates JWT auth method `nomad-workloads` (JWKS URL points to first Nomad server port 4646); creates binding rule mapping `nomad_service` JWT claims to Consul service identities; creates role `nomad-tasks-default`; creates binding rule mapping task workload JWTs to `nomad-tasks-default`; reconfigures Nomad servers with `service_identity` and `task_identity` blocks in the `consul {}` stanza; restarts Nomad servers |
-| 11 | `cluster_summary` | `localhost` | Prints all tokens, all `export` commands, and both UI URLs |
+| 1–11 | Same as Option C | — | Refer to Option C table |
+| 12 | `consul_nomad_workload_identity` | `servers[0]` + `[servers]` | Creates Consul ACL policy `nomad-tasks-policy`; creates JWT auth method `nomad-workloads` (JWKS URL points to first Nomad server port 4646); creates binding rule mapping `nomad_service` JWT claims to Consul service identities; creates role `nomad-tasks-default`; creates binding rule mapping task workload JWTs to `nomad-tasks-default`; reconfigures Nomad servers with `service_identity` and `task_identity` blocks in the `consul {}` stanza; restarts Nomad servers |
+| 13 | `cluster_summary` | `localhost` | Prints all tokens, all `export` commands, and both UI URLs |
 
 **Status summary includes:** same as Option C.
 
@@ -422,9 +432,9 @@ nomad server members
 
 # Expected output:
 # Name                           Address     Port  Status  Leader  Raft Version  Build  DC   Region
-# nomad-consul-server-1.dc1  10.0.1.x    4648  alive   false   3             2.0.0  dc1  global
-# nomad-consul-server-2.dc1  10.0.1.y    4648  alive   true    3             2.0.0  dc1  global
-# nomad-consul-server-3.dc1  10.0.1.z    4648  alive   false   3             2.0.0  dc1  global
+# nomad-consul-server-1.dc1  10.0.1.x    4648  alive   false   3             2.0.4  dc1  global
+# nomad-consul-server-2.dc1  10.0.1.y    4648  alive   true    3             2.0.4  dc1  global
+# nomad-consul-server-3.dc1  10.0.1.z    4648  alive   false   3             2.0.4  dc1  global
 
 # Check registered client nodes
 nomad node status
@@ -586,6 +596,41 @@ ansible-playbook -i inventory.ini ansible/playbooks/consul_clients.yaml --tags d
 The `-v` flag activates the debug output. Without it, the slurp tasks still run
 but output is suppressed. The `consul.hcl` print task is automatically
 suppressed when gossip encryption is enabled to avoid leaking the gossip key.
+
+### Consul DNS returns SERVFAIL — stale token file from a previous cluster
+
+After deploying a new cluster, `.consul` DNS queries return SERVFAIL even
+though `consul.hcl` on the clients shows an `acl.tokens.dns` value. Running
+`consul acl token list` shows no `dns-access` policy and the UUID in the
+config does not match any token in the ACL system.
+
+**Cause:** `ansible/tokens/consul-dns-secret-id.txt` is a leftover from a
+previous cluster. The `consul_dns_token.yaml` idempotency sentinel sees the
+file and skips token creation, so the old UUID is written into the new
+`consul.hcl` — pointing at a token that was never created for this cluster.
+
+**Fix:** Delete the stale sentinel file and re-run the playbook.
+
+```bash
+cd ansible
+rm tokens/consul-dns-secret-id.txt
+ansible-playbook -i inventory.ini playbooks/consul_dns_token.yaml
+```
+
+After it completes, restart the Nomad job:
+
+```bash
+nomad job stop countdash
+nomad job run nomad-jobs/countdash-consul-service-discovery.nomad.hcl
+```
+
+**Prevention:** Always run `teardown.yaml` before destroying infrastructure.
+If you skip teardown and run `terraform destroy` directly, manually delete all
+files under `ansible/tokens/` before the next deployment:
+
+```bash
+rm ansible/tokens/*.txt
+```
 
 ### Terraform: duplicate key pair error
 

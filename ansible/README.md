@@ -58,6 +58,8 @@ ansible/
 ├── tokens/                              # ACL bootstrap token files (auto-created, git-ignored)
 │   ├── consul-bootstrap-token-output.txt
 │   ├── consul-bootstrap-secret-id.txt
+│   ├── consul-dns-secret-id.txt             # created by consul_dns_token.yaml
+│   ├── consul-client-agent-<hostname>-secret-id.txt  # one per client, created by consul_dns_token.yaml
 │   ├── nomad-bootstrap-token-output.txt
 │   ├── nomad-bootstrap-secret-id.txt
 │   ├── nomad-consul-server-token-output.txt
@@ -71,6 +73,7 @@ ansible/
 │   ├── consul_clients.yaml
 │   ├── consul_acl_bootstrap.yaml
 │   ├── consul_acl_deny_anonymous.yaml
+│   ├── consul_dns_token.yaml
 │   ├── consul_nomad_integration.yaml
 │   ├── consul_nomad_service_discovery.yaml
 │   ├── consul_nomad_workload_identity.yaml
@@ -103,10 +106,10 @@ Use case entrypoints (run from the `ansible/` directory):
 
 | Playbook | What it deploys |
 |----------|----------------|
-| `deploy_consul.yaml` | Consul servers + clients + ACL + dnsmasq |
+| `deploy_consul.yaml` | Consul servers + clients + ACL + DNS token + dnsmasq + anonymous-deny |
 | `deploy_nomad.yaml` | Nomad servers + clients + ACL |
-| `deploy_consul_nomad_sd.yaml` | Consul + Nomad + service discovery |
-| `deploy_consul_nomad_wi.yaml` | Consul + Nomad + service discovery + workload identity |
+| `deploy_consul_nomad_sd.yaml` | Consul + Nomad + DNS token + service discovery |
+| `deploy_consul_nomad_wi.yaml` | Consul + Nomad + DNS token + service discovery + workload identity |
 | `teardown.yaml` | Removes everything Ansible installed |
 
 Sub-playbooks in `playbooks/` can be run directly for targeted operations:
@@ -179,6 +182,7 @@ Refer to [PLAYBOOKS-README.md](PLAYBOOKS-README.md) for detailed documentation o
 - Installs dnsmasq
 - Disables systemd-resolved stub listener so dnsmasq can bind to port 53
 - Forwards `.consul` domain queries to the local Consul agent (port 8600)
+- Binds to both `127.0.0.1` (host processes) and `172.17.0.1` (Docker task driver containers) so Nomad jobs using `dns { servers = ["172.17.0.1"] }` resolve `.consul` names correctly
 - Configures upstream DNS servers (AWS VPC resolver by default)
 - Updates `/etc/resolv.conf`
 
