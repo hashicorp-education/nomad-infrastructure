@@ -11,6 +11,10 @@ scan the headings and follow only what is relevant to the current task.
 - [ansible/PLAYBOOKS-README.md](../../ansible/PLAYBOOKS-README.md) — per-playbook reference including variables, tags, and rendered-config inspection
 - [ansible/README.md](../../ansible/README.md) — Ansible role/variable overview and troubleshooting guide
 
+## ACL architecture
+
+- [acl-architecture.md](acl-architecture.md) — Complete ACL reference for the cluster: every Consul and Nomad token that exists at runtime, its policy, which agent holds it, and which playbook creates it. Includes rendered `consul.hcl` and `nomad.hcl` ACL blocks, issuance dependency chain, workload identity JWT exchange flow, order-sensitivity rules, and a failure-mode quick-reference table.
+
 ## dnsmasq and DNS
 
 - [dnsmasq-consul-docker-dns.md](dnsmasq-consul-docker-dns.md) — How dnsmasq integrates with the OS (systemd-resolved, resolv.conf, config files), why it is required for Consul service discovery, and the Docker task driver DNS failure mode (`172.17.0.1` vs `127.0.0.1`) including the fix (`dnsmasq_listen_addresses` list, group_vars default).
