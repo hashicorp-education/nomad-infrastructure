@@ -11,6 +11,15 @@ scan the headings and follow only what is relevant to the current task.
 - [ansible/PLAYBOOKS-README.md](../../ansible/PLAYBOOKS-README.md) — per-playbook reference including variables, tags, and rendered-config inspection
 - [ansible/README.md](../../ansible/README.md) — Ansible role/variable overview and troubleshooting guide
 
+## dnsmasq and DNS
+
+- [dnsmasq-consul-docker-dns.md](dnsmasq-consul-docker-dns.md) — How dnsmasq integrates with the OS (systemd-resolved, resolv.conf, config files), why it is required for Consul service discovery, and the Docker task driver DNS failure mode (`172.17.0.1` vs `127.0.0.1`) including the fix (`dnsmasq_listen_addresses` list, group_vars default).
+
+## Troubleshooting
+
+- [troubleshoot-consul-sd.md](troubleshoot-consul-sd.md) — "Counting service is unreachable" in the Countdash web UI when using Consul service discovery. Covers dnsmasq listen address verification, DNS resolution testing from inside the Docker container, cross-node TCP connectivity, and Consul health check failure due to slow JVM startup.
+- [consul-client-node-identity.md](consul-client-node-identity.md) — Why node identities are used (not a shared prefix policy) for Consul client agent tokens: least-privilege `node:write` scoping, no policy file to maintain, better audit trail. Covers the token-per-node file naming convention, idempotency sentinel, and the node-name-must-match constraint.
+
 ## Established patterns
 
 ### Upgrade pattern (version bump)

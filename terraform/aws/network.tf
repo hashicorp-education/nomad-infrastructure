@@ -100,14 +100,6 @@ resource "aws_security_group" "nomad_consul_sg" {
     description = "Countdash example app - web UI"
   }
 
-  ingress {
-    from_port   = 9001
-    to_port     = 9001
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "Countdash example app - API"
-  }
-
   # Allow all internal traffic
   ingress {
     from_port = 0

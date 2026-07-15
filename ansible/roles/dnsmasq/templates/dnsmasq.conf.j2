@@ -3,8 +3,11 @@
 # Main dnsmasq configuration
 # Managed by Ansible — do not edit manually
 
-# Listen on loopback only so the system resolver uses dnsmasq
-listen-address={{ dnsmasq_listen_address }}
+# Listen on the configured addresses. Add the Docker bridge gateway
+# (e.g. 172.17.0.1) here when using the Nomad Docker task driver.
+{% for addr in dnsmasq_listen_addresses %}
+listen-address={{ addr }}
+{% endfor %}
 bind-interfaces
 
 # Do not use /etc/resolv.conf for upstream servers;

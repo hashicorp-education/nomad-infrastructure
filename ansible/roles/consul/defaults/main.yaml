@@ -70,6 +70,12 @@ consul_cloud_auto_join_tag_value: "server"
 consul_acl_enabled: false
 consul_acl_default_policy: "deny"
 consul_acl_enable_token_persistence: true
+# Optional ACL tokens written into acl.tokens{} in consul.hcl.
+# Set consul_acl_agent_token per host (node-identity token); set
+# consul_acl_dns_token to the shared DNS token. Both are empty by default
+# and the tokens{} block is omitted from consul.hcl when both are unset.
+consul_acl_agent_token: ""
+consul_acl_dns_token: ""
 
 # TLS configuration
 consul_tls_enabled: false

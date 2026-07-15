@@ -15,6 +15,17 @@ resource "aws_instance" "servers" {
     volume_type = "gp3"
   }
 
+  # Enforce IMDSv2 to block SSRF credential-theft via Consul HTTP service checks.
+  # With http_tokens = "required", GET requests to 169.254.169.254 return 401
+  # because no session token is present; only PUT-then-GET (the IMDSv2 flow)
+  # is accepted.  http_put_response_hop_limit = 1 prevents containers from
+  # reaching the metadata service through the host network stack.
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+  }
+
   tags = {
     Name     = "${var.project_name}-server-${count.index + 1}"
     Owner    = var.owner
@@ -36,6 +47,13 @@ resource "aws_instance" "clients" {
   root_block_device {
     volume_size = 50
     volume_type = "gp3"
+  }
+
+  # Enforce IMDSv2 — same reasoning as aws_instance.servers above.
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
   }
 
   tags = {

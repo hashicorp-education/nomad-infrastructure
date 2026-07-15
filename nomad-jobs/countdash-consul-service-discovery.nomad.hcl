@@ -11,6 +11,7 @@ job "countdash" {
 
   group "countdash-api" {
     count = 1
+    shutdown_delay = "10s"
 
     network {
       port "countdash-api" {
@@ -69,7 +70,8 @@ job "countdash" {
   group "countdash-web" {
 
     count = 1
-
+    shutdown_delay = "10s"
+    
     network {
       port "countdash-web" {
         static = var.countdash-web-port

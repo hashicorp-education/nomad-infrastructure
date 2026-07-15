@@ -121,6 +121,26 @@ argument_specs:
           Default ACL policy when no matching rule is found.
           Use 'deny' for production (allowlist model).
 
+      consul_acl_agent_token:
+        type: str
+        required: false
+        default: ""
+        description: >
+          ACL token written to acl.tokens.agent in consul.hcl.
+          Used by the Consul agent for its own catalog operations (node
+          registration). Set this to a node-identity token per host.
+          When empty the tokens{} block is omitted from consul.hcl.
+
+      consul_acl_dns_token:
+        type: str
+        required: false
+        default: ""
+        description: >
+          ACL token written to acl.tokens.dns in consul.hcl.
+          Used by the Consul agent to authorise DNS query responses.
+          Set this to the shared dns-access token created by
+          consul_dns_token.yaml. When empty the tokens{} block is omitted.
+
       consul_tls_enabled:
         type: bool
         required: false

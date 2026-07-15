@@ -46,6 +46,9 @@
 - name: Bootstrap Consul ACL
   ansible.builtin.import_playbook: playbooks/consul_acl_bootstrap.yaml
 
+- name: Issue Consul client ACL tokens and reconfigure clients with ACL enabled
+  ansible.builtin.import_playbook: playbooks/consul_dns_token.yaml
+
 - name: Configure dnsmasq for Consul DNS forwarding
   ansible.builtin.import_playbook: playbooks/dnsmasq.yaml
 
@@ -86,4 +89,3 @@
     summary_show_nomad_env: true
     summary_show_consul_ui: true
     summary_show_nomad_ui: true
-    

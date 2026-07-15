@@ -22,3 +22,11 @@ consul_binary_version: "2.0.1"
 
 # CNI plugins — https://github.com/containernetworking/plugins/releases
 cni_plugins_version: "1.9.1"
+
+# dnsmasq — listen on both loopback (host processes) and the Docker bridge
+# gateway (Docker task driver containers) so .consul DNS works in all contexts.
+# 172.17.0.1 is the default docker0 gateway; adjust if Docker is configured
+# with a non-default bridge subnet.
+dnsmasq_listen_addresses:
+  - "127.0.0.1"
+  - "172.17.0.1"
