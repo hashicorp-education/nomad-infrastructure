@@ -329,3 +329,21 @@
       path: "{{ playbook_dir }}/.tls"
       state: absent
     tags: teardown_tls
+
+# ── Play 9: Remind the operator to unset shell environment variables ───────────
+- name: Post-teardown reminder
+  hosts: localhost
+  gather_facts: false
+  become: false
+  connection: local
+  tasks:
+  - name: Remind operator to unset cluster environment variables
+    ansible.builtin.debug:
+      msg:
+      - "Teardown complete."
+      - ""
+      - "If you sourced set-cluster-env.sh earlier, unset the cluster"
+      - "environment variables in your shell:"
+      - ""
+      - "    source ./unset-cluster-env.sh"
+    tags: teardown_reminder
