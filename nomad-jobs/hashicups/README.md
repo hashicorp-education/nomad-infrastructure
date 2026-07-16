@@ -334,7 +334,8 @@ nomad job allocs hashicups
 consul catalog services
 ```
 
-Get the public URL (nginx can run on any client node):
+Get the public URL (nginx can run on any client node). The following command
+returns an IP address.
 
 ```bash
 nomad node status -verbose \

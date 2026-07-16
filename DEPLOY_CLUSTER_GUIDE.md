@@ -35,7 +35,7 @@ flowchart TD
 
     UC2 --> P2A[common_setup]
     P2A --> P2B[nomad_servers]
-    P2B --> P2C[nomad_clients]terra
+    P2B --> P2C[nomad_clients]
     P2C --> P2D[nomad_acl_bootstrap]
     P2D --> P2Z([cluster_summary])
 
