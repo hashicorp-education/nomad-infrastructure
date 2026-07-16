@@ -300,20 +300,21 @@
   become: false
   connection: local
   tasks:
-  - name: Remove bootstrap token files
+  - name: Find all token files
+    ansible.builtin.find:
+      paths: "{{ playbook_dir }}/tokens"
+      file_type: file
+    register: token_files
+    failed_when: false
+    no_log: true
+    tags: teardown_tokens
+
+  - name: Remove all token files
     ansible.builtin.file:
-      path: "{{ playbook_dir }}/tokens/{{ item }}"
+      path: "{{ item.path }}"
       state: absent
     no_log: true
-    loop:
-    - consul-bootstrap-token-output.txt
-    - consul-bootstrap-secret-id.txt
-    - nomad-bootstrap-token-output.txt
-    - nomad-bootstrap-secret-id.txt
-    - nomad-consul-server-token-output.txt
-    - nomad-consul-server-secret-id.txt
-    - nomad-consul-client-token-output.txt
-    - nomad-consul-client-secret-id.txt
+    loop: "{{ token_files.files | default([]) }}"
     tags: teardown_tokens
 
 # ── Play 8: Remove TLS certificates from the control machine ──────────────────
