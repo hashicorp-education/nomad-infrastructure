@@ -91,13 +91,16 @@ resource "aws_security_group" "nomad_consul_sg" {
     description = "Nomad UI and HTTP API"
   }
 
-# Countdash example app web UI
-  ingress {
-    from_port   = 9002
-    to_port     = 9002
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-    description = "Countdash example app - web UI"
+  # Application ports — driven by var.extra_ingress_ports in terraform.tfvars
+  dynamic "ingress" {
+    for_each = var.extra_ingress_ports
+    content {
+      from_port   = ingress.value.port
+      to_port     = ingress.value.port
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+      description = ingress.value.description
+    }
   }
 
   # Allow all internal traffic

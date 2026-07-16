@@ -1,8 +1,43 @@
 # AWS security group management for Nomad infrastructure
 
-This playbook allows you to dynamically add custom ingress rules to the AWS security group created by Terraform for the Nomad infrastructure. It provides a flexible, safe way to open additional ports for your applications without modifying Terraform configuration.
+Two approaches are available for adding ingress rules to the AWS security group created by Terraform for the Nomad infrastructure.
 
-## Overview
+## Choosing an approach
+
+| | Terraform (`extra_ingress_ports`) | Ansible (`update-security-group.yaml`) |
+|---|---|---|
+| **When to use** | Port must persist across `terraform apply` and be tracked in state | Quick addition to a running cluster without a Terraform plan/apply cycle |
+| **Persistence** | Stored in `terraform.tfstate`; recreated on every `terraform apply` | Added directly to AWS; not tracked by Terraform state |
+| **Prerequisites** | Terraform + AWS credentials | Ansible, `amazon.aws` collection, `boto3` |
+
+Use the **Terraform approach** when deploying a new cluster or making a planned change you want version-controlled in `terraform.tfvars`. Use the **Ansible approach** when the cluster is already running and you need to open a port immediately without a `terraform apply` cycle.
+
+## Terraform approach
+
+Edit `extra_ingress_ports` in `terraform/aws/terraform.tfvars` and add an object for each port:
+
+```hcl
+extra_ingress_ports = [
+  { port = 9002, description = "Countdash example app - web UI" },
+  { port = 8080, description = "My application" },
+]
+```
+
+Then apply:
+
+```bash
+cd terraform/aws
+terraform plan   # review the new ingress rule
+terraform apply
+```
+
+To close a port, remove its entry from the list and run `terraform apply` again. Terraform reconciles the security group rules against the list on every apply.
+
+## Ansible approach
+
+Use the `update-security-group.yaml` playbook to add a port to a running cluster without modifying Terraform state.
+
+### Overview
 
 The `update-security-group.yaml` playbook:
 - Adds custom ingress rules to the existing security group

@@ -56,6 +56,17 @@ variable "allowed_ssh_cidr" {
   default     = "0.0.0.0/0"
 }
 
+variable "extra_ingress_ports" {
+  description = "Additional TCP ingress ports opened to 0.0.0.0/0. Add one object per application port; remove entries to close ports. Required fields: port (number), description (string)."
+  type = list(object({
+    port        = number
+    description = string
+  }))
+  default = [
+    { port = 9002, description = "Countdash example app - web UI" },
+  ]
+}
+
 variable "ssh_user" {
   description = "SSH user for Ansible"
   type        = string

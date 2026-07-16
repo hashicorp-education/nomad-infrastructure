@@ -35,7 +35,7 @@ flowchart TD
 
     UC2 --> P2A[common_setup]
     P2A --> P2B[nomad_servers]
-    P2B --> P2C[nomad_clients]
+    P2B --> P2C[nomad_clients]terra
     P2C --> P2D[nomad_acl_bootstrap]
     P2D --> P2Z([cluster_summary])
 
@@ -201,7 +201,7 @@ Type `yes` when prompted. Terraform takes approximately five minutes to complete
 | Public subnet | `10.0.1.0/24`, auto-assign public IPs |
 | Internet gateway | Attached to VPC |
 | Route table | Default route `0.0.0.0/0` → internet gateway |
-| Security group | Ports 22, 8500, 4646, all-internal |
+| Security group | Static: 22 (SSH), 8500 (Consul), 4646 (Nomad); configurable: `extra_ingress_ports` variable (default: 9002); all-internal |
 | Server EC2 instances (×3) | Ubuntu 24.04, t3.medium, 50 GB gp3, tagged `AutoJoinRole=server` |
 | Client EC2 instances (×2) | Ubuntu 24.04, t3.medium, 50 GB gp3, tagged `AutoJoinRole=client` |
 | IAM instance profile | `ec2:DescribeInstances` for Cloud Auto-Join |
@@ -478,7 +478,9 @@ Use the bootstrap token values to log into the UIs. Find the values in these fil
 
 The job specification files for the example Countdash app are located in the
 root-level `nomad-jobs` directory. The app has a web UI that connects to an API
-on the server. Terraform added the ports to the AWS security group.
+on the server. Port 9002 (web UI) is included in the default `extra_ingress_ports`
+list in `terraform.tfvars`. To add ports for your own applications, see
+[Managing security group ports](#managing-security-group-ports).
 
 ### Deploy the app with Nomad for service discovery
 
@@ -534,6 +536,25 @@ The result displays the public URL.
 ---
 
 ## Troubleshooting
+
+### Role not found: geerlingguy.docker
+
+**Symptom:**
+
+```
+[ERROR]: The role 'geerlingguy.docker' was not found in: ...
+```
+
+The `geerlingguy.docker` role is an external Galaxy role that must be installed before running any playbook. It is not bundled with the repository.
+
+**Fix:** Run `ansible-galaxy install` from the `ansible/` directory:
+
+```bash
+cd ansible
+ansible-galaxy install -r requirements.yaml
+```
+
+This installs all roles and collections declared in `requirements.yaml`, including `geerlingguy.docker`, into `~/.ansible/roles/` where Ansible can find them. Re-run the failed playbook after the install completes.
 
 ### Ansible locale encoding error
 
@@ -690,9 +711,54 @@ Try a different availability zone or instance type (for example, `t3a.medium`). 
 
 ---
 
+## Managing security group ports
+
+Two approaches are available for adding ingress ports to the cluster's security group. See [ansible/README-SECURITY-GROUP.md](ansible/README-SECURITY-GROUP.md) for full details on both approaches.
+
+### Terraform (persistent — survives terraform apply)
+
+Edit `extra_ingress_ports` in `terraform/aws/terraform.tfvars`:
+
+```hcl
+extra_ingress_ports = [
+  { port = 9002, description = "Countdash example app - web UI" },
+  { port = 8080, description = "My application" },
+]
+```
+
+```bash
+cd terraform/aws
+terraform plan
+terraform apply
+```
+
+To close a port, remove its entry and re-apply. Terraform reconciles the security group against the list on every apply.
+
+### Ansible (live cluster — no terraform apply required)
+
+Use `update-security-group.yaml` to add a port to a running cluster immediately:
+
+```bash
+cd ansible
+ansible-playbook update-security-group.yaml \
+  -e custom_port=8080 \
+  -e custom_port_description="My application"
+```
+
+The playbook is non-destructive (`purge_rules: false`) and checks for duplicate rules before adding. Ports added this way are **not tracked in Terraform state** and will be absent if you run `terraform apply` with a list that does not include them.
+
+---
+
 ## Advanced: run individual layers
 
 Run individual sub-playbooks directly for targeted operations, such as re-deploying only the Consul servers or re-running ACL bootstrap after a reset.
+
+> **Before running any sub-playbook**, install Galaxy roles if you have not already done so:
+>
+> ```bash
+> cd ansible
+> ansible-galaxy install -r requirements.yaml
+> ```
 
 ### Consul layer
 

@@ -27,3 +27,11 @@ client_instance_type = "t3.medium"
 
 # SSH Configuration
 ssh_user = "ubuntu"
+
+# Extra application ingress ports (opened to 0.0.0.0/0)
+# Add one object per application port you want to expose.
+# Remove entries to close ports. Defaults to the Countdash demo app port.
+# extra_ingress_ports = [
+#   { port = 9002, description = "Countdash example app - web UI" },
+#   { port = 8080, description = "My application" },
+# ]
