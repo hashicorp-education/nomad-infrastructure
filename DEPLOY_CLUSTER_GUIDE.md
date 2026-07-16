@@ -75,6 +75,28 @@ flowchart TD
 | Ansible | 2.14 | `ansible --version` |
 | AWS CLI | any | `aws sts get-caller-identity` |
 
+Ansible requires the locale encoding on the control machine (where you run `ansible-playbook`) to be UTF-8. Any locale works — `it_IT.UTF-8`, `fr_FR.UTF-8`, `en_US.UTF-8`, and so on — as long as the `.UTF-8` charset suffix is present. The playbooks themselves are locale-agnostic.
+
+Verify your locale before running any playbook:
+
+```bash
+locale
+```
+
+If `LANG` or `LC_ALL` is missing the `.UTF-8` suffix (for example, `it_IT` instead of `it_IT.UTF-8`), append it:
+
+```bash
+export LANG="${LANG}.UTF-8"   # e.g. it_IT  →  it_IT.UTF-8
+export LC_ALL="${LANG}"
+```
+
+Or set an explicit value if `LANG` is unset.
+
+```bash
+export LANG=it_IT.UTF-8
+export LC_ALL=it_IT.UTF-8
+```
+
 Install Ansible Galaxy roles before running any playbook:
 
 ```bash
@@ -512,6 +534,29 @@ The result displays the public URL.
 ---
 
 ## Troubleshooting
+
+### Ansible locale encoding error
+
+**Symptom:** `ERROR: Ansible requires the locale encoding to be UTF-8; Detected ISO8859-1`
+
+Ansible only requires that the locale encoding on the control machine be UTF-8. It does not require a specific language or region. This error appears when the locale is set to a non-UTF-8 charset — for example, `it_IT` (ISO-8859-1) instead of `it_IT.UTF-8`.
+
+**Fix:** Keep your locale; just add the `.UTF-8` charset suffix:
+
+```bash
+export LANG=it_IT.UTF-8
+export LC_ALL=it_IT.UTF-8
+```
+
+Substitute your actual locale (`fr_FR`, `de_DE`, `en_GB`, and so on). To make this permanent, add the exports to your shell profile (`~/.bashrc`, `~/.zshrc`, or equivalent).
+
+Verify the result:
+
+```bash
+locale
+# LANG=it_IT.UTF-8
+# LC_ALL=it_IT.UTF-8
+```
 
 ### SSH connection failures
 
