@@ -1,6 +1,6 @@
 # dnsmasq Role
 
-Installs and configures **dnsmasq** on every cluster node to forward `.consul`
+Installs and configures **dnsmasq** on every cluster node to forward `.global`
 DNS queries to the local Consul agent (port 8600), enabling Consul service
 discovery via DNS for all processes on the host.
 
@@ -9,7 +9,7 @@ discovery via DNS for all processes on the host.
 1. Installs the `dnsmasq` package
 2. Disables the `systemd-resolved` DNS stub listener so dnsmasq can bind to port 53
 3. Writes `/etc/dnsmasq.conf` — main configuration (listens on `127.0.0.1`)
-4. Writes `/etc/dnsmasq.d/10-consul` — forwards `.consul` domain to `127.0.0.1:8600`
+4. Writes `/etc/dnsmasq.d/10-consul` — forwards `.global` domain to `127.0.0.1:8600`
 5. Optionally rewrites `/etc/resolv.conf` to use `127.0.0.1` as the system resolver
 6. Enables and starts the `dnsmasq` service
 
@@ -32,10 +32,10 @@ On Ubuntu/Debian, `systemd-resolved` runs a DNS stub listener on `127.0.0.53:53`
 ### 2. Writes dnsmasq configuration files
 
 - `/etc/dnsmasq.conf` — binds to each address in `dnsmasq_listen_addresses` (`["127.0.0.1"]` role default; `group_vars/all.yaml` sets `["127.0.0.1", "172.17.0.1"]` so Docker task driver containers can reach dnsmasq at the bridge gateway), sets `no-resolv` (ignores `/etc/resolv.conf` for upstream), explicitly lists upstream DNS servers (AWS VPC resolver `169.254.169.253` by default), configures caching (1000 entries), and sets `domain-needed` and `bogus-priv` as safety guards.
-- `/etc/dnsmasq.d/10-consul` — the forwarding rule that sends all `.consul` queries to the local Consul agent DNS port:
+- `/etc/dnsmasq.d/10-consul` — the forwarding rule that sends all `.global` queries to the local Consul agent DNS port:
 
   ```
-  server=/consul/127.0.0.1#8600
+  server=/global/127.0.0.1#8600
   ```
 
   Plus `rev-server=` entries for RFC 1918 ranges so that reverse DNS (PTR) lookups for private IPs are also forwarded to Consul.
@@ -64,7 +64,7 @@ dnsmasq 127.0.0.1:53              dnsmasq 172.17.0.1:53
         └─────────────── same dnsmasq process ────┘
                                   │
                ┌──────────────────┴──────────────────┐
-               │ .consul domain                       │ all other queries
+               │ .global domain                       │ all other queries
                ▼                                      ▼
   Consul agent DNS (127.0.0.1:8600)      AWS VPC resolver (169.254.169.253)
   Returns IPs from Consul catalog
@@ -76,7 +76,7 @@ Consul's built-in DNS listener runs on port **8600**, not 53. Standard DNS libra
 
 Without dnsmasq (or an equivalent forwarder), every application and Nomad job would need to hardcode `127.0.0.1:8600` as its resolver. That is non-standard and does not work with tools that rely on the system resolver.
 
-With dnsmasq in place, standard DNS lookups such as `redis.service.consul`, `nomad.service.consul`, and `_http._tcp.api.service.consul` (SRV records) work from the shell, from Nomad `template` blocks, or from any process inside a container with host networking — without any application-level changes.
+With dnsmasq in place, standard DNS lookups such as `redis.service.global`, `nomad.service.global`, and `_http._tcp.api.service.global` (SRV records) work from the shell, from Nomad `template` blocks, or from any process inside a container with host networking — without any application-level changes.
 
 The dnsmasq playbook (`ansible/playbooks/dnsmasq.yaml`) is a prerequisite for any scenario that uses Consul DNS-based service discovery and is included automatically in `deploy_consul_nomad_sd.yaml`.
 
@@ -147,7 +147,7 @@ blocks is correct — dnsmasq listens on that interface.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `dnsmasq_upstream_dns_servers` | `["169.254.169.253"]` | Upstream resolvers for non-.consul queries |
+| `dnsmasq_upstream_dns_servers` | `["169.254.169.253"]` | Upstream resolvers for non-.global queries |
 | `consul_dns_port` | `8600` | Consul agent DNS port |
 | `dnsmasq_listen_addresses` | `["127.0.0.1"]` | Addresses dnsmasq binds to. Add `"172.17.0.1"` when using the Nomad Docker task driver. |
 | `dnsmasq_cache_size` | `1000` | DNS cache entry count |
@@ -163,10 +163,10 @@ After deployment, verify DNS forwarding is working:
 
 ```bash
 # Resolve Consul's own service address
-host consul.service.consul
+host consul.service.global
 
 # Resolve a registered Nomad service (replace with your service name)
-host nomad.service.consul
+host nomad.service.global
 ```
 
 ## References

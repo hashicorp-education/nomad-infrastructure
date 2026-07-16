@@ -12,7 +12,7 @@ The web container sets `dns { servers = ["172.17.0.1"] }` so Docker routes its
 DNS queries to the host via the bridge gateway. If dnsmasq is only listening on
 `127.0.0.1` (the default before the `dnsmasq_listen_addresses` fix), nothing
 answers on `172.17.0.1:53` and the container cannot resolve
-`countdash-api.service.dc1.consul`. The web app then cannot connect to the API.
+`countdash-api.service.dc1.global`. The web app then cannot connect to the API.
 
 Three possible failure layers, in order of likelihood:
 
@@ -73,7 +73,7 @@ Inside the container, check the resolver and resolve the API service name:
 cat /etc/resolv.conf
 
 # Should return the private IP of the client node running the API
-nslookup countdash-api.service.dc1.consul
+nslookup countdash-api.service.dc1.global
 ```
 
 If `nslookup` returns `SERVFAIL` or times out, DNS is still broken — go back to
@@ -184,7 +184,7 @@ ansible-playbook -i inventory.ini playbooks/consul_dns_token.yaml
 After the playbook completes, verify DNS from the client:
 
 ```bash
-dig @127.0.0.1 -p 8600 countdash-api.service.dc1.consul
+dig @127.0.0.1 -p 8600 countdash-api.service.dc1.global
 # Expected: status: NOERROR with an A record
 ```
 

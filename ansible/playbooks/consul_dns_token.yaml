@@ -7,7 +7,7 @@
 # every Consul agent in the cluster via `consul acl set-agent-token dns`.
 #
 # When Consul ACLs are enabled with a default-deny policy, the anonymous
-# token cannot read services or nodes, causing .consul DNS lookups to return
+# token cannot read services or nodes, causing .global DNS lookups to return
 # NXDOMAIN for Docker task driver containers.  This playbook creates a scoped
 # `dns-access` policy and links it to a dedicated token that the Consul agent
 # uses exclusively for DNS queries.  The anonymous token is not modified.

@@ -68,7 +68,7 @@ argument_specs:
       consul_domain:
         type: str
         required: false
-        default: consul
+        default: global
         description: DNS domain for Consul service discovery.
 
       consul_bind_addr:

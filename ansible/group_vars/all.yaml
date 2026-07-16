@@ -1,7 +1,8 @@
 # Copyright (c) HashiCorp, Inc.
 # SPDX-License-Identifier: MPL-2.0
 ---
-# Product version pins — edit this file to upgrade Nomad, Consul, or CNI plugins.
+# Cluster-wide settings — the single place to tune versions and key cluster
+# parameters for this project.
 #
 # These variables override the per-role defaults/ values and are visible to
 # every role and playbook in this project. Ansible resolves group_vars/all.yaml
@@ -19,12 +20,20 @@ nomad_binary_version: "2.0.4"
 
 # HashiCorp Consul — https://releases.hashicorp.com/consul
 consul_binary_version: "2.0.1"
+# Consul datacenter name — used in consul.hcl and in Consul DNS names:
+#   <service>.service.<datacenter>.<domain>
+consul_datacenter: "dc1"
+# Consul DNS domain — all service DNS names end with .<domain>.
+# The default Consul domain is "consul"; this project uses "global" to avoid
+# conflicts with the ICANN-registered .consul TLD and to scope the domain
+# to this cluster explicitly.
+consul_domain: "global"
 
 # CNI plugins — https://github.com/containernetworking/plugins/releases
 cni_plugins_version: "1.9.1"
 
 # dnsmasq — listen on both loopback (host processes) and the Docker bridge
-# gateway (Docker task driver containers) so .consul DNS works in all contexts.
+# gateway (Docker task driver containers) so .global DNS works in all contexts.
 # 172.17.0.1 is the default docker0 gateway; adjust if Docker is configured
 # with a non-default bridge subnet.
 dnsmasq_listen_addresses:

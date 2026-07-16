@@ -17,7 +17,7 @@ The Ansible configuration automates the complete setup of the cluster, including
 - AWS Cloud Auto-Join for Consul
 - ACL bootstrap for both Consul and Nomad
 - Consul-Nomad integration (service discovery and workload identity)
-- dnsmasq `.consul` DNS forwarding
+- dnsmasq `.global` DNS forwarding
 
 ## Quick start
 
@@ -181,8 +181,8 @@ Refer to [PLAYBOOKS-README.md](PLAYBOOKS-README.md) for detailed documentation o
 **Features**:
 - Installs dnsmasq
 - Disables systemd-resolved stub listener so dnsmasq can bind to port 53
-- Forwards `.consul` domain queries to the local Consul agent (port 8600)
-- Binds to both `127.0.0.1` (host processes) and `172.17.0.1` (Docker task driver containers) so Nomad jobs using `dns { servers = ["172.17.0.1"] }` resolve `.consul` names correctly
+- Forwards `.global` domain queries to the local Consul agent (port 8600)
+- Binds to both `127.0.0.1` (host processes) and `172.17.0.1` (Docker task driver containers) so Nomad jobs using `dns { servers = ["172.17.0.1"] }` resolve `.global` names correctly
 - Configures upstream DNS servers (AWS VPC resolver by default)
 - Updates `/etc/resolv.conf`
 

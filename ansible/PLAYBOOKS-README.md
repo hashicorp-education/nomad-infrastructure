@@ -66,7 +66,7 @@ Deploys a complete Consul cluster with ACL and DNS forwarding. Use this when you
 | 4 | `consul_clients.yaml` — Consul client agents on `[clients]` |
 | 5 | `consul_acl_bootstrap.yaml` — bootstrap Consul ACL |
 | 6 | `consul_dns_token.yaml` — create `dns-access` policy, DNS token, and per-node node-identity tokens; reconfigure Consul clients with ACL enabled |
-| 7 | `dnsmasq.yaml` — configure `.consul` DNS forwarding on all nodes |
+| 7 | `dnsmasq.yaml` — configure `.global` DNS forwarding on all nodes |
 | 8 | `consul_acl_deny_anonymous.yaml` — deny unauthenticated requests |
 | 9 | Cluster status summary |
 
@@ -633,7 +633,7 @@ ansible-playbook -i inventory.ini playbooks/consul_nomad_workload_identity.yaml
 
 ### playbooks/dnsmasq.yaml
 
-Installs and configures **dnsmasq** on all cluster nodes to forward `.consul` DNS queries to the local Consul agent (port 8600). This enables processes on the host (including Nomad jobs) to resolve service addresses using the `.consul` DNS domain.
+Installs and configures **dnsmasq** on all cluster nodes to forward `.global` DNS queries to the local Consul agent (port 8600). This enables processes on the host (including Nomad jobs) to resolve service addresses using the `.global` DNS domain.
 
 ```bash
 ansible-playbook -i inventory.ini playbooks/dnsmasq.yaml
@@ -646,7 +646,7 @@ ansible-playbook -i inventory.ini playbooks/dnsmasq.yaml
 1. Installs the `dnsmasq` package
 2. Disables the `systemd-resolved` DNS stub listener (writes `/etc/systemd/resolved.conf.d/no-stub.conf`)
 3. Writes `/etc/dnsmasq.conf` — main config, binds to every address in `dnsmasq_listen_addresses` (defaults: `127.0.0.1` for host processes and `172.17.0.1` for Docker task driver containers), uses `169.254.169.253` (AWS VPC DNS) for upstream
-4. Writes `/etc/dnsmasq.d/10-consul` — forwards `.consul` to `127.0.0.1:8600`
+4. Writes `/etc/dnsmasq.d/10-consul` — forwards `.global` to `127.0.0.1:8600`
 5. Rewrites `/etc/resolv.conf` to use `127.0.0.1`
 6. Enables and starts `dnsmasq`
 
@@ -654,10 +654,10 @@ ansible-playbook -i inventory.ini playbooks/dnsmasq.yaml
 
 ```bash
 # Resolve Consul's built-in service entry
-host consul.service.consul
+host consul.service.global
 
 # Resolve the Nomad service
-host nomad.service.consul
+host nomad.service.global
 ```
 
 ---

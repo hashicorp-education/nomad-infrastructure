@@ -7,7 +7,7 @@ argument_specs:
   main:
     short_description: Install and configure dnsmasq for Consul DNS forwarding
     description:
-      - Installs dnsmasq and configures it to forward .consul DNS queries to
+      - Installs dnsmasq and configures it to forward .global DNS queries to
         the local Consul agent on port 8600.
       - On Ubuntu/Debian, disables the systemd-resolved stub listener so
         dnsmasq can occupy port 53.
@@ -21,7 +21,7 @@ argument_specs:
         type: list
         required: false
         description: >-
-          List of upstream DNS server addresses for non-.consul queries.
+          List of upstream DNS server addresses for non-.global queries.
           Defaults to the AWS VPC DNS resolver at 169.254.169.253.
 
       consul_dns_port:
@@ -43,7 +43,7 @@ argument_specs:
           List of addresses dnsmasq binds to for incoming DNS queries.
           Always include 127.0.0.1 for host processes. Add 172.17.0.1 (the
           Docker bridge gateway) when running Nomad jobs with the Docker task
-          driver so containers can resolve .consul names via dnsmasq.
+          driver so containers can resolve .global names via dnsmasq.
 
       dnsmasq_cache_size:
         type: int

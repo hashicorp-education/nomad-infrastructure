@@ -3,7 +3,7 @@
 ---
 # dnsmasq role tasks
 #
-# Installs dnsmasq and configures it to forward .consul DNS queries to the
+# Installs dnsmasq and configures it to forward .global DNS queries to the
 # local Consul agent (port 8600) while forwarding all other queries to the
 # configured upstream resolvers.
 #
@@ -119,7 +119,7 @@
   ansible.builtin.copy:
     content: |
       # Managed by Ansible (dnsmasq role).
-      # dnsmasq handles .consul forwarding and upstream resolution.
+      # dnsmasq handles .global forwarding and upstream resolution.
       nameserver 127.0.0.1
     dest: /etc/resolv.conf
     mode: "0644"

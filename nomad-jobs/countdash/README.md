@@ -38,7 +38,7 @@ Browser (your machine)
 EC2 instance running countdash-web task  ──► address = attr.unique.platform.aws.public-hostname
     │
     │  port 9001 (TCP, VPC-internal)
-    │  resolved via Consul DNS (.consul) or Nomad template
+    │  resolved via Consul DNS (.global) or Nomad template
     ▼
 EC2 instance running countdash-api task  ──► address = attr.unique.platform.aws.local-ipv4
 ```
@@ -166,10 +166,10 @@ they must be predictable.
 `dns.servers` passes a list of DNS resolver addresses to Docker via the
 `--dns` flag. `172.17.0.1` is the Docker bridge gateway — the address of
 the host as seen from inside a Docker container. Pointing containers to
-this address routes their DNS queries to dnsmasq, which forwards `.consul`
+this address routes their DNS queries to dnsmasq, which forwards `.global`
 lookups to the local Consul agent (port 8600) and everything else to the
 AWS VPC resolver. This stanza is absent from the Nomad service discovery job
-because that job does not perform `.consul` DNS lookups.
+because that job does not perform `.global` DNS lookups.
 
 ---
 
@@ -200,7 +200,7 @@ services can discover it.
 | Aspect | `provider = "consul"` | `provider = "nomad"` |
 |--------|----------------------|----------------------|
 | Catalog | Consul service catalog | Nomad built-in catalog |
-| DNS lookup | `<name>.service.<dc>.consul` via dnsmasq | Not available via DNS |
+| DNS lookup | `<name>.service.<dc>.global` via dnsmasq | Not available via DNS |
 | Template function | `{{ service "name" }}` | `{{ nomadService "name" }}` |
 | Requires Consul | Yes | No |
 
@@ -351,7 +351,7 @@ service catalog entry changes.
 
 ```hcl
 env {
-  COUNTING_SERVICE_URL = "http://countdash-api.service.dc1.consul:${var.countdash-api-port}"
+  COUNTING_SERVICE_URL = "http://countdash-api.service.dc1.global:${var.countdash-api-port}"
   PORT = "${var.countdash-web-port}"
 }
 ```
@@ -360,7 +360,7 @@ env {
 
 `env` sets static environment variables in the container. In the Consul
 variant, `COUNTING_SERVICE_URL` is a hardcoded Consul DNS name
-(`countdash-api.service.dc1.consul`) that resolves at runtime via dnsmasq.
+(`countdash-api.service.dc1.global`) that resolves at runtime via dnsmasq.
 This is simpler than the `nomadService` template but requires Consul and
 dnsmasq to be deployed and functioning on the client node.
 
@@ -396,7 +396,7 @@ baseline footprint is significant. The web task uses the default.
 | | Consul service discovery | Nomad service discovery |
 |-|--------------------------|------------------------|
 | Service registration | Consul catalog | Nomad catalog |
-| Web → API address resolution | `.consul` DNS name resolved at connection time via dnsmasq | `nomadService` template renders address at startup; task restarts on change |
+| Web → API address resolution | `.global` DNS name resolved at connection time via dnsmasq | `nomadService` template renders address at startup; task restarts on change |
 | `dns.servers` required | Yes (`172.17.0.1`) | No |
 | Consul dependency | Required | None |
 | Address update behaviour | Transparent (DNS TTL) | Task restarts when catalog changes |

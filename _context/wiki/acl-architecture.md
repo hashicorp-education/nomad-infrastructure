@@ -99,9 +99,9 @@ query_prefix "" {
 
 **Why these permissions:**
 - `node_prefix "" read` — Consul DNS needs to read node records to resolve
-  `<node>.node.consul` and to map service instances to their node addresses.
-- `service_prefix "" read` — Required to resolve any `<name>.service.consul`
-  lookup. Without this, every `.consul` DNS query returns SERVFAIL even if the
+  `<node>.node.global` and to map service instances to their node addresses.
+- `service_prefix "" read` — Required to resolve any `<name>.service.global`
+  lookup. Without this, every `.global` DNS query returns SERVFAIL even if the
   service exists.
 - `query_prefix "" read` — Required for Consul prepared queries (used by some
   service mesh patterns). Included for completeness; not strictly required for
@@ -237,7 +237,7 @@ that vector.
 **Order constraint:** This policy must be applied **after** `consul_dns_token.yaml`
 completes. If it runs first, the DNS token does not yet exist and the DNS
 agent token slot is empty on clients, causing every DNS query to fall back to
-the anonymous token — which, once denied, produces SERVFAIL for all `.consul`
+the anonymous token — which, once denied, produces SERVFAIL for all `.global`
 lookups.
 
 ---
@@ -479,7 +479,7 @@ misconfigured in a way that is not always obvious from error messages.
 ### consul_dns_token.yaml before consul_acl_deny_anonymous.yaml
 
 The DNS token must exist and be applied to every agent **before** the
-anonymous token is denied. If the anonymous token is denied first, `.consul`
+anonymous token is denied. If the anonymous token is denied first, `.global`
 DNS queries return SERVFAIL until the DNS token is in place. The use case
 entrypoints (`deploy_consul.yaml`, `deploy_consul_nomad_sd.yaml`,
 `deploy_consul_nomad_wi.yaml`) enforce this order automatically.
@@ -522,7 +522,7 @@ nodes) in `ansible/tokens/`. Files are created with mode 0600.
 **After `terraform destroy`:** The cluster is gone but these files persist.
 On the next deployment, every idempotency check sees the files and skips token
 creation. The new cluster has no matching tokens — any operation that uses
-those UUIDs will receive a 403, and `.consul` DNS queries will return SERVFAIL.
+those UUIDs will receive a 403, and `.global` DNS queries will return SERVFAIL.
 
 **Recovery:** Delete all files in `ansible/tokens/` before re-deploying:
 
@@ -539,8 +539,8 @@ part of its cleanup (Play 7 tagged `teardown_tokens`).
 
 | Symptom | Most likely cause | Verification | Fix |
 |---------|------------------|--------------|-----|
-| `.consul` DNS returns SERVFAIL | Stale DNS token file from a previous cluster | `consul acl token list` — DNS token UUID not present | Delete `consul-dns-secret-id.txt`, re-run `consul_dns_token.yaml` |
-| `.consul` DNS returns NXDOMAIN | Consul not running or ACL not yet configured | `systemctl status consul` | Run `consul_servers.yaml` / `consul_clients.yaml` |
+| `.global` DNS returns SERVFAIL | Stale DNS token file from a previous cluster | `consul acl token list` — DNS token UUID not present | Delete `consul-dns-secret-id.txt`, re-run `consul_dns_token.yaml` |
+| `.global` DNS returns NXDOMAIN | Consul not running or ACL not yet configured | `systemctl status consul` | Run `consul_servers.yaml` / `consul_clients.yaml` |
 | Nomad job service registration fails (permission denied) | Nomad client Consul token missing or wrong | `nomad alloc logs <id>` shows 403 | Re-run `consul_nomad_service_discovery.yaml` |
 | Workload identity JWT validation fails | JWKS URL unreachable or Nomad server port 4646 not accessible | `consul acl auth-method read -name nomad-workloads` — check JWKS URL | Verify Nomad server is running; re-run `consul_nomad_workload_identity.yaml` |
 | Consul API returns 403 on everything | Anonymous token denied before DNS token was set | `consul acl token read -id 00000000-0000-0000-0000-000000000002` | Re-run `consul_dns_token.yaml`, then `consul_acl_deny_anonymous.yaml` |

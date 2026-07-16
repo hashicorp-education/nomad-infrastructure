@@ -6,7 +6,7 @@
 # cannot respond to queries without a token that grants read access to
 # services, nodes, and prepared queries.  Assigning this policy to a
 # dedicated token and setting that token as the agent's DNS token (via
-# `consul acl set-agent-token dns`) allows .consul DNS lookups to work
+# `consul acl set-agent-token dns`) allows .global DNS lookups to work
 # without granting the anonymous token any permissions.
 #
 # Required permissions:

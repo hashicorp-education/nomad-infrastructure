@@ -42,7 +42,7 @@ This project provisions a production-ready cluster of **3 servers and 2 clients*
 - **TLS-ready**: Certificate generation and distribution are wired in. Enable them per playbook with `nomad_tls_enabled: true` or `consul_tls_enabled: true`.
 - **ACL-ready**: Consul ACLs are enabled on servers by default. Nomad ACLs are enabled on all nodes by default. Each has a dedicated bootstrap playbook.
 - **Consul service discovery**: Nomad integrates with Consul using Workload Identities (JWT-based, Nomad 1.7+) with no shared static tokens. Nomad services and tasks obtain scoped Consul ACL tokens automatically.
-- **dnsmasq DNS forwarding**: Every node runs dnsmasq to forward `.consul` DNS queries to the local Consul agent, enabling service address resolution for all processes
+- **dnsmasq DNS forwarding**: Every node runs dnsmasq to forward `.global` DNS queries to the local Consul agent, enabling service address resolution for all processes
 - **CNI + Docker**: Clients install CNI plugins and Docker CE for containerized workloads
 - **Idempotent**: Safe to re-run Terraform and Ansible repeatedly
 
@@ -168,7 +168,7 @@ Each playbook configures all hosts, tests Ansible connectivity, deploys the name
 
 #### Use case 1: Consul cluster only
 
-Deploys Consul servers and clients, bootstraps Consul ACL, and configures dnsmasq for `.consul` DNS forwarding on all nodes.
+Deploys Consul servers and clients, bootstraps Consul ACL, and configures dnsmasq for `.global` DNS forwarding on all nodes.
 
 ```bash
 ansible-playbook -i inventory.ini deploy_consul.yaml

@@ -251,7 +251,7 @@ Choose the option that matches your requirements.
 ### Option A: Consul cluster only — `deploy_consul.yaml`
 
 Deploys Consul servers and clients, bootstraps Consul ACL, and configures
-dnsmasq for `.consul` DNS forwarding on all nodes. Use this when you need only
+dnsmasq for `.global` DNS forwarding on all nodes. Use this when you need only
 Consul for service discovery or service mesh without Nomad.
 
 Set Consul version and other variables in
@@ -270,7 +270,7 @@ Sub-playbooks executed in order:
 | 3 | `consul_clients` | `[clients]` | Installs Consul 2.0.1 in client mode; joins server cluster via Cloud Auto-Join |
 | 4 | `consul_acl_bootstrap` | `servers[0]` | Bootstraps Consul ACL; saves management token to `ansible/tokens/consul-bootstrap-*.txt` |
 | 5 | `consul_dns_token` | `servers[0]` + `[clients]` | Creates `dns-access` ACL policy; creates a shared DNS token and one per-node node-identity agent token per client; applies DNS token to every Consul agent via `consul acl set-agent-token dns`; re-runs consul role on each client with `consul_acl_enabled: true` to write `acl { tokens { agent dns } }` into `consul.hcl`; saves `ansible/tokens/consul-dns-secret-id.txt` and `ansible/tokens/consul-client-agent-<hostname>-secret-id.txt` |
-| 6 | `dnsmasq` | `all` | Installs dnsmasq; disables systemd-resolved stub listener; forwards `.consul` queries to `127.0.0.1:8600`; binds to `172.17.0.1` as well so Docker containers can reach dnsmasq; rewrites `/etc/resolv.conf` |
+| 6 | `dnsmasq` | `all` | Installs dnsmasq; disables systemd-resolved stub listener; forwards `.global` queries to `127.0.0.1:8600`; binds to `172.17.0.1` as well so Docker containers can reach dnsmasq; rewrites `/etc/resolv.conf` |
 | 7 | `consul_acl_deny_anonymous` | `servers[0]` | Attaches a deny-all policy to the Consul anonymous token; unauthenticated API and DNS requests are rejected after this step |
 | 8 | `cluster_summary` | `localhost` | Prints Consul bootstrap token, `export CONSUL_HTTP_ADDR` and `export CONSUL_HTTP_TOKEN` commands, and Consul UI URL |
 
@@ -334,7 +334,7 @@ Sub-playbooks executed in order:
 | 3 | `consul_clients` | `[clients]` | Installs Consul 2.0.1 in client mode; joins server cluster |
 | 4 | `consul_acl_bootstrap` | `servers[0]` | Bootstraps Consul ACL; saves management token to `ansible/tokens/` |
 | 5 | `consul_dns_token` | `servers[0]` + `[clients]` | Creates `dns-access` ACL policy; creates DNS token and per-node node-identity agent tokens for each client; applies DNS token to all Consul agents; reconfigures Consul clients with ACL enabled and both tokens in `consul.hcl`; saves `ansible/tokens/consul-dns-secret-id.txt` and `ansible/tokens/consul-client-agent-<hostname>-secret-id.txt` |
-| 6 | `dnsmasq` | `all` | Installs dnsmasq; configures `.consul` DNS forwarding to port 8600; binds to both `127.0.0.1` and `172.17.0.1` |
+| 6 | `dnsmasq` | `all` | Installs dnsmasq; configures `.global` DNS forwarding to port 8600; binds to both `127.0.0.1` and `172.17.0.1` |
 | 7 | `consul_acl_deny_anonymous` | `servers[0]` | Attaches deny-all policy to the Consul anonymous token |
 | 8 | `nomad_servers` | `[servers]` | Installs Nomad 2.0.4 in server mode; static `server_join.retry_join` |
 | 9 | `nomad_clients` | `[clients]` | Installs Nomad 2.0.4 in client mode; installs CNI plugins and Docker CE |
@@ -665,7 +665,7 @@ suppressed when gossip encryption is enabled to avoid leaking the gossip key.
 
 ### Consul DNS returns SERVFAIL — stale token file from a previous cluster
 
-After deploying a new cluster, `.consul` DNS queries return SERVFAIL even
+After deploying a new cluster, `.global` DNS queries return SERVFAIL even
 though `consul.hcl` on the clients shows an `acl.tokens.dns` value. Running
 `consul acl token list` shows no `dns-access` policy and the UUID in the
 config does not match any token in the ACL system.

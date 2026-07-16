@@ -102,7 +102,7 @@ job "countdash" {
         service = "countdash-web"
       }
       env {
-        COUNTING_SERVICE_URL = "http://countdash-api.service.dc1.consul:${var.countdash-api-port}"
+        COUNTING_SERVICE_URL = "http://countdash-api.service.dc1.global:${var.countdash-api-port}"
         PORT="${var.countdash-web-port}"
       }
 

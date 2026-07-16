@@ -59,8 +59,8 @@ libraries always query port 53. Without dnsmasq, every application and Nomad
 job would need to hardcode `127.0.0.1:8600`, which does not work with any tool
 that relies on the system resolver.
 
-With dnsmasq in place, lookups like `redis.service.consul`,
-`nomad.service.consul`, and `_http._tcp.api.service.consul` (SRV records) work
+With dnsmasq in place, lookups like `redis.service.global`,
+`nomad.service.global`, and `_http._tcp.api.service.global` (SRV records) work
 from the shell, from Nomad `template` blocks, and from any process using the
 system resolver — with no application-level changes.
 
@@ -125,7 +125,7 @@ dnsmasq 127.0.0.1:53              dnsmasq 172.17.0.1:53
         └─────────────── same dnsmasq process ────┘
                                   │
                ┌──────────────────┴──────────────────┐
-               │ .consul domain                       │ all other queries
+               │ .global domain                       │ all other queries
                ▼                                      ▼
   Consul agent DNS (127.0.0.1:8600)      AWS VPC resolver (169.254.169.253)
   Returns IPs from Consul catalog

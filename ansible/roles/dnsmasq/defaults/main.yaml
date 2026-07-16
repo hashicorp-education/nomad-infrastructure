@@ -16,7 +16,7 @@ consul_dns_port: 8600
 # The loopback address where Consul's DNS server listens
 consul_dns_address: "127.0.0.1"
 
-# Upstream DNS servers for non-.consul queries.
+# Upstream DNS servers for non-.global queries.
 # On AWS, the VPC DNS resolver is at the VPC base address + 2 (e.g. 169.254.169.253).
 # Use the AWS-provided DNS or a public resolver.
 dnsmasq_upstream_dns_servers:
@@ -36,7 +36,7 @@ dnsmasq_cache_size: 1000
 dnsmasq_disable_resolved_stub: true
 
 # Update /etc/resolv.conf to use dnsmasq as the system resolver.
-# This ensures all processes on the host can resolve .consul names.
+# This ensures all processes on the host can resolve .global names.
 dnsmasq_update_resolv_conf: true
 
 # RFC 1918 networks for which Consul handles reverse DNS lookups.
