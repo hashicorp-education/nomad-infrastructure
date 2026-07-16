@@ -22,6 +22,7 @@ scan the headings and follow only what is relevant to the current task.
 ## Troubleshooting
 
 - [troubleshoot-consul-sd.md](troubleshoot-consul-sd.md) — "Counting service is unreachable" in the Countdash web UI when using Consul service discovery. Covers dnsmasq listen address verification, DNS resolution testing from inside the Docker container, cross-node TCP connectivity, Consul health check failure due to slow JVM startup, and **SERVFAIL caused by a stale DNS token file from a previous cluster** (Step 5 — the most common cause after a destroy-and-rebuild cycle).
+- [nginx-upstream-dns-startup-failure.md](nginx-upstream-dns-startup-failure.md) — nginx `[emerg] host not found in upstream` crash loop when a multi-group Nomad job starts. Root cause: nginx resolves `upstream {}` hostnames at config-parse time, before upstream services register in Consul. Fix: `resolver 172.17.0.1 valid=5s` + `set $var` in `proxy_pass` to defer resolution to request time. Includes troubleshooting steps and caveat about loss of `upstream {}` load-balancing features.
 - [consul-client-node-identity.md](consul-client-node-identity.md) — Why node identities are used (not a shared prefix policy) for Consul client agent tokens: least-privilege `node:write` scoping, no policy file to maintain, better audit trail. Covers the token-per-node file naming convention, idempotency sentinel, and the node-name-must-match constraint.
 
 ## Established patterns

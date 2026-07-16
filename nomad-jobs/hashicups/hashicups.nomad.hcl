@@ -1,4 +1,13 @@
 #-------------------------------------------------------------------------------
+# This file was originally 
+# https://github.com/hashicorp-education/learn-consul-nomad-vm/blob/main/shared/jobs/03.hashicups.nomad.hcl
+
+# Modified to remove the private node constraint. 
+# nginx task modified. Refer to _context/wiki/nginx-upstream-dns-startup-failure.md for details.
+#-------------------------------------------------------------------------------
+
+
+#-------------------------------------------------------------------------------
 # Job Variables
 #-------------------------------------------------------------------------------
 
@@ -132,11 +141,6 @@ job "hashicups" {
 
     task "db" {
       driver = "docker"
-      constraint {
-        attribute = "${meta.nodeRole}"
-        operator  = "!="
-        value     = "ingress"
-      }
 
       meta {
         service = "database"
@@ -199,11 +203,6 @@ job "hashicups" {
 
     task "product-api" {
       driver = "docker"
-      constraint {
-        attribute = "${meta.nodeRole}"
-        operator  = "!="
-        value     = "ingress"
-      }
 
       meta {
         service = "product-api"
@@ -256,11 +255,7 @@ job "hashicups" {
 
     task "payments-api" {
       driver = "docker"
-      constraint {
-        attribute = "${meta.nodeRole}"
-        operator  = "!="
-        value     = "ingress"
-      }
+
 
       meta {
         service = "payments-api"
@@ -321,11 +316,6 @@ job "hashicups" {
 
     task "public-api" {
       driver = "docker"
-      constraint {
-        attribute = "${meta.nodeRole}"
-        operator  = "!="
-        value     = "ingress"
-      }
 
       meta {
         service = "public-api"
@@ -378,11 +368,6 @@ job "hashicups" {
 
     task "frontend" {
       driver = "docker"
-      constraint {
-        attribute = "${meta.nodeRole}"
-        operator  = "!="
-        value     = "ingress"
-      }
 
       meta {
         service = "frontend"
@@ -435,11 +420,7 @@ job "hashicups" {
 
     task "nginx" {
       driver = "docker"
-      constraint {
-        attribute = "${meta.nodeRole}"
-        operator  = "="
-        value     = "ingress"
-      }
+
       meta {
         service = "nginx-reverse-proxy"
       }
@@ -455,9 +436,16 @@ job "hashicups" {
       template {
         data =  <<EOF
           proxy_cache_path /var/cache/nginx levels=1:2 keys_zone=STATIC:10m inactive=7d use_temp_path=off;
-          upstream frontend_upstream {
-              server frontend.service.dc1.global:${var.frontend_port};
-          }
+
+          # Defer upstream DNS resolution to request time instead of startup.
+          # nginx resolves upstream hostnames at config-parse time when they
+          # appear in upstream{} blocks or bare proxy_pass directives.  Using a
+          # variable in proxy_pass + a resolver directive makes nginx re-resolve
+          # on each request (cached for valid= seconds), so nginx starts
+          # successfully even when Consul services are not yet registered.
+          resolver 172.17.0.1 valid=5s ipv6=off;
+          resolver_timeout 2s;
+
           server {
             listen ${var.nginx_port};
             server_name {{ env "NOMAD_IP_nginx" }};
@@ -472,10 +460,12 @@ job "hashicups" {
             proxy_set_header Host $host;
             proxy_cache_bypass $http_upgrade;
             location / {
-              proxy_pass http://frontend_upstream;
+              set $frontend_upstream "frontend.service.dc1.global:${var.frontend_port}";
+              proxy_pass http://$frontend_upstream;
             }
             location /api {
-              proxy_pass http://public-api.service.dc1.global:${var.public_api_port};
+              set $public_api_upstream "public-api.service.dc1.global:${var.public_api_port}";
+              proxy_pass http://$public_api_upstream;
             }
             location = /health {
               access_log off;

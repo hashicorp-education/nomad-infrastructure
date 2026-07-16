@@ -26,6 +26,10 @@ After the playbook completes, source the environment variables:
 source ./set-cluster-env.sh
 ```
 
+Refer to the [Nomad plus Consul cluster deployment
+guide](../../DEPLOY_CLUSTER_GUIDE.md) for detailed cluster deployment instructions.
+
+
 ## Application architecture
 
 HashiCups is composed of six services. The job deploys each service in its own
@@ -102,7 +106,7 @@ terraform apply
 
 ```bash
 cd ansible
-ansible-playbook update-security-group.yaml \
+ansible-playbook playbooks/update-security-group.yaml \
   -e custom_port=80 \
   -e custom_port_description="HashiCups nginx"
 ```
@@ -125,29 +129,6 @@ The job uses `type = "service"` and places each service in a separate group.
 Because Nomad co-locates tasks within a group but schedules groups independently,
 six separate allocations are created — one per service — and the scheduler can
 place them on different client nodes.
-
-### Constraints
-
-All services except nginx must run on **private** client nodes:
-
-```hcl
-constraint {
-  attribute = "${meta.nodeRole}"
-  operator  = "!="
-  value     = "ingress"
-}
-```
-
-nginx must run on the **ingress** (public) client node so that port 80 is
-reachable from the internet:
-
-```hcl
-constraint {
-  attribute = "${meta.nodeRole}"
-  operator  = "="
-  value     = "ingress"
-}
-```
 
 ### DNS in Docker containers
 
@@ -299,7 +280,7 @@ All variables have defaults. Override any of them at deploy time with `-var`:
 nomad job run \
   -var="nginx_port=8080" \
   -var="frontend_version=v1.1.0" \
-  03.hashicups.nomad.hcl
+  hashicups.nomad.hcl
 ```
 
 | Variable | Default | Description |
@@ -324,22 +305,23 @@ nomad job run \
 ## Deploy
 
 ```bash
-nomad job run 03.hashicups.nomad.hcl
+nomad job run hashicups.nomad.hcl
 ```
 
-Nomad creates six allocations. The scheduler may place the non-nginx groups
-across different private client nodes:
+Nomad creates six allocations. Because the job has no node constraints, the
+scheduler may place all groups on the same client node or spread them across
+multiple nodes depending on available capacity:
 
 ```
 nomad job allocs hashicups
 
 ID        Node ID   Task Group   Version  Desired  Status   Created  Modified
 2f680e43  c131bce2  db           0        run      running  ...
-4a3f2e8b  30b5f033  nginx        0        run      running  ...
-6512bee8  7fb20437  payments     0        run      running  ...
-7190a16a  7fb20437  frontend     0        run      running  ...
-a67f6273  7fb20437  public-api   0        run      running  ...
-c83120cc  7fb20437  product-api  0        run      running  ...
+4a3f2e8b  c131bce2  nginx        0        run      running  ...
+6512bee8  c131bce2  payments     0        run      running  ...
+7190a16a  c131bce2  frontend     0        run      running  ...
+a67f6273  c131bce2  public-api   0        run      running  ...
+c83120cc  c131bce2  product-api  0        run      running  ...
 ```
 
 ## Verify
@@ -352,7 +334,7 @@ nomad job allocs hashicups
 consul catalog services
 ```
 
-Get the public URL (nginx runs on the ingress node):
+Get the public URL (nginx can run on any client node):
 
 ```bash
 nomad node status -verbose \
@@ -361,19 +343,26 @@ nomad node status -verbose \
     awk '{print "http://"$1}'
 ```
 
-Use the Consul API to find the Hashicups public address. Before running the following command, complete these steps:
-
-- Set the [post-deployment environment variables](#post-deployment-set-environment-variables)
-- Installed [curl v8.3.0 or later](https://curl.se/)
-- Installed [jq](https://jqlang.org/) to process the JSON response
+Use the Consul API to find the HashiCups public address. Before running the
+following command, export `CONSUL_HTTP_ADDR` and `CONSUL_HTTP_TOKEN` (run
+`source ansible/set-cluster-env.sh` from the repository root if you have not
+already done so). The command also requires
+[curl v8.3.0+](https://curl.se/) and [jq](https://jqlang.org/).
 
 ```bash
-curl --variable '%CONSUL_HTTP_ADDR' --variable '%CONSUL_HTTP_TOKEN' --expand-url "{{CONSUL_HTTP_ADDR}}/v1/catalog/service/nginx?passing" --expand-header "X-Consul-Token: {{CONSUL_HTTP_TOKEN}}"  | jq -r '.[] | "\(.ServiceAddress):\(.ServicePort)"'
+curl --variable '%CONSUL_HTTP_ADDR' --variable '%CONSUL_HTTP_TOKEN' \
+  --expand-url "{{CONSUL_HTTP_ADDR}}/v1/catalog/service/nginx?passing" \
+  --expand-header "X-Consul-Token: {{CONSUL_HTTP_TOKEN}}" \
+  | jq -r '.[] | "http://\(.ServiceAddress)"'
 ```
 
-The result displays the public URL.
+The result is the complete URL including the `http://` scheme. nginx is
+configured for plain HTTP on port 80 — do **not** use `https://`.
 
-Open the URL in a browser. NGINX listens on port 80, so no port number is required.
+> **Brave browser note:** Brave's "Upgrade connections to HTTPS" feature
+> silently rewrites `http://` to `https://` for IP addresses. Since nginx has
+> no TLS configuration, the HTTPS attempt times out. Use Firefox, Chrome, or
+> Safari, or disable Brave Shields for this address before opening the URL.
 
 ## Clean up
 
