@@ -866,7 +866,7 @@ Post-task: waits for Nomad HTTP API on port 4646.
 ---
 
 
-## Phase 3: ACL bootstrap (for individual layer deployments)
+## ACL bootstrap (for individual layer deployments)
 
 > [!IMPORTANT]
 > ACL bootstrap is included automatically in all four use case
