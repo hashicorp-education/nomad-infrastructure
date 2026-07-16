@@ -67,6 +67,65 @@ flowchart TD
     P4L --> P4Z([cluster_summary])
 ```
 
+## Deployment workflows
+
+Each of the following use cases is a complete end-to-end checklist. Steps 1–4 are identical
+for all use cases. Follow only the checklist for your use case — each step links
+to the detailed section in this guide.
+
+---
+
+### Use case A: Consul cluster only
+
+1. **[Install prerequisites](#prerequisites)**
+1. **[Configure AWS credentials](#aws-credentials)**
+1. **[Provision infrastructure](#phase-1-provision-infrastructure-terraform)**
+1. **[Install Ansible Galaxy roles](#phase-2-cluster-configuration-ansible)**
+1. **[Deploy the Consul cluster](#option-a-consul-cluster-only----deploy_consulyaml)**
+1. **[Export environment variables](#post-deployment-set-environment-variables)**
+1. **[Verify the cluster](#verify-consul)**
+1. **[Clean up when done](#cleanup)**
+
+---
+
+### Use case B: Nomad cluster only
+
+1. **[Install prerequisites](#prerequisites)**
+2. **[Configure AWS credentials](#aws-credentials)**
+3. **[Provision infrastructure](#phase-1-provision-infrastructure-terraform)**
+4. **[Install Ansible Galaxy roles](#phase-2-cluster-configuration-ansible)**
+5. **[Deploy the Nomad cluster](#option-b-nomad-cluster-only----deploy_nomadyaml)**
+6. **[Export environment variables](#post-deployment-set-environment-variables)**
+7. **[Verify the cluster](#verify-nomad)**
+8. **[Clean up when done](#cleanup)**
+---
+
+### Use case C: Consul + Nomad with service discovery
+
+1. **[Install prerequisites](#prerequisites)**
+2. **[Configure AWS credentials](#aws-credentials)**
+3. **[Provision infrastructure](#phase-1-provision-infrastructure-terraform)**
+4. **[Install Ansible Galaxy roles](#phase-2-cluster-configuration-ansible)**
+5. **[Deploy the cluster](#option-c-consul--nomad-with-service-discovery----deploy_consul_nomad_sdyaml)**
+6. **[Export environment variables](#post-deployment-set-environment-variables)**
+7. **[Verify the cluster](#post-deployment-verification)**
+8. **[Clean up when done](#cleanup)**
+
+---
+
+### Use case D: Consul + Nomad with service discovery and workload identity
+
+1. **[Install prerequisites](#prerequisites)**
+2. **[Configure AWS credentials](#aws-credentials)**
+3. **[Provision infrastructure](#phase-1-provision-infrastructure-terraform)**
+4. **[Install Ansible Galaxy roles](#phase-2-cluster-configuration-ansible)**
+5. **[Deploy the cluster](#option-d-consul--nomad-with-service-discovery-and-workload-identity----deploy_consul_nomad_wiyaml)**
+6. **[Export environment variables](#post-deployment-set-environment-variables)**
+7. **[Verify the cluster](#post-deployment-verification)**
+8. **[Clean up when done](#cleanup)**
+
+---
+
 ## Prerequisites
 
 | Tool | Minimum version | Verify |
@@ -86,7 +145,7 @@ locale
 If `LANG` or `LC_ALL` is missing the `.UTF-8` suffix (for example, `it_IT` instead of `it_IT.UTF-8`), append it:
 
 ```bash
-export LANG="${LANG}.UTF-8"   # e.g. it_IT  →  it_IT.UTF-8
+export LANG="${LANG}.UTF-8"   # for example: it_IT  →  it_IT.UTF-8
 export LC_ALL="${LANG}"
 ```
 
@@ -242,7 +301,7 @@ Four use case entrypoints cover the most common deployment scenarios. Each one
 first runs `common_setup`, which tests Ansible connectivity and configures all
 hosts. Then the process executes the required sub-playbooks in order and
 finishes with a `cluster_summary` that prints tokens and ready-to-paste `export`
-commands. ACLs are enabled, and the playbooks create the bootstrap tokens.
+commands. The playbooks enable ACLs and create the bootstrap tokens.
 
 Choose the option that matches your requirements.
 
@@ -266,10 +325,10 @@ Sub-playbooks executed in order:
 | Step | Sub-playbook | Hosts | What it does |
 |------|-------------|-------|--------------|
 | 1 | `common_setup` | `all` | Configures passwordless sudo; tests Ansible connectivity (ping) |
-| 2 | `consul_servers` | `[servers]` | Installs Consul 2.0.1 in server mode; enables Cloud Auto-Join via `AutoJoinRole=server` EC2 tag; writes `/etc/consul.d/consul.hcl`; starts service; waits for port 8500 |
-| 3 | `consul_clients` | `[clients]` | Installs Consul 2.0.1 in client mode; joins server cluster via Cloud Auto-Join |
+| 2 | `consul_servers` | `[servers]` | Installs Consul 2.0.1 in server mode; enables Cloud Auto-Join using the `AutoJoinRole=server` EC2 tag; writes `/etc/consul.d/consul.hcl`; starts service; waits for port 8500 |
+| 3 | `consul_clients` | `[clients]` | Installs Consul 2.0.1 in client mode; joins the server cluster through Cloud Auto-Join |
 | 4 | `consul_acl_bootstrap` | `servers[0]` | Bootstraps Consul ACL; saves management token to `ansible/tokens/consul-bootstrap-*.txt` |
-| 5 | `consul_dns_token` | `servers[0]` + `[clients]` | Creates `dns-access` ACL policy; creates a shared DNS token and one per-node node-identity agent token per client; applies DNS token to every Consul agent via `consul acl set-agent-token dns`; re-runs consul role on each client with `consul_acl_enabled: true` to write `acl { tokens { agent dns } }` into `consul.hcl`; saves `ansible/tokens/consul-dns-secret-id.txt` and `ansible/tokens/consul-client-agent-<hostname>-secret-id.txt` |
+| 5 | `consul_dns_token` | `servers[0]` + `[clients]` | Creates `dns-access` ACL policy; creates a shared DNS token and one per-node node-identity agent token per client; applies the DNS token to every Consul agent using `consul acl set-agent-token dns`; re-runs consul role on each client with `consul_acl_enabled: true` to write `acl { tokens { agent dns } }` into `consul.hcl`; saves `ansible/tokens/consul-dns-secret-id.txt` and `ansible/tokens/consul-client-agent-<hostname>-secret-id.txt` |
 | 6 | `dnsmasq` | `all` | Installs dnsmasq; disables systemd-resolved stub listener; forwards `.global` queries to `127.0.0.1:8600`; binds to `172.17.0.1` as well so Docker containers can reach dnsmasq; rewrites `/etc/resolv.conf` |
 | 7 | `consul_acl_deny_anonymous` | `servers[0]` | Attaches a deny-all policy to the Consul anonymous token; unauthenticated API and DNS requests are rejected after this step |
 | 8 | `cluster_summary` | `localhost` | Prints Consul bootstrap token, `export CONSUL_HTTP_ADDR` and `export CONSUL_HTTP_TOKEN` commands, and Consul UI URL |
@@ -360,7 +419,7 @@ To remove what Ansible deployed, run the `teardown.yaml` playbook. Then run `uns
 
 ### Option D: Consul + Nomad with service discovery and workload identity — `deploy_consul_nomad_wi.yaml`
 
-Extends Option C by configuring a Consul JWT auth method that validates Nomad workload JWTs, and adding `service_identity` and `task_identity` blocks to the Nomad server configuration. Nomad services and tasks automatically exchange a short-lived JWT for a scoped Consul ACL token at runtime. No static secrets are required in job files.
+Extends Option C by configuring a Consul JWT auth method that validates Nomad workload JWTs, and adding `service_identity` and `task_identity` blocks to the Nomad server configuration. Nomad services and tasks automatically exchange a short-lived JWT for a scoped Consul ACL token at runtime. Job files require no static secrets.
 
 Set Consul, Nomad, and CNI plugin versions in
 [`ansible/group_vars/all.yaml`](ansible/group_vars/all.yaml) before running:
@@ -484,10 +543,9 @@ list in `terraform.tfvars`. To add ports for your own applications, see
 
 ### Deploy the app with Nomad for service discovery
 
-This Countdash version uses Nomad for service discovery. Refer to the [Configure
-service discovery
-documentation](https://developer.hashicorp.com/nomad/docs/job-declare/service-discovery)
-for more information.
+This Countdash version uses Nomad for service discovery. For details on service
+discovery, refer to the [Configure service discovery
+documentation](https://developer.hashicorp.com/nomad/docs/job-declare/service-discovery).
 
 Change to the `nomad-jobs` directory and deploy the job.
 
@@ -524,8 +582,8 @@ nomad job status countdash
 Use the Consul API to find the Countdash public address. Before running the following command, complete these steps:
 
 - Set the [post-deployment environment variables](#post-deployment-set-environment-variables)
-- Installed [curl v8.3.0 or later](https://curl.se/)
-- Installed [jq](https://jqlang.org/) to process the JSON response
+- [curl v8.3.0 or later](https://curl.se/)
+- [jq](https://jqlang.org/)
 
 ```bash
 curl --variable '%CONSUL_HTTP_ADDR' --variable '%CONSUL_HTTP_TOKEN' --expand-url "{{CONSUL_HTTP_ADDR}}/v1/catalog/service/countdash-web?passing" --expand-header "X-Consul-Token: {{CONSUL_HTTP_TOKEN}}"  | jq -r '.[] | "\(.ServiceAddress):\(.ServicePort)"'
@@ -545,7 +603,8 @@ The result displays the public URL.
 [ERROR]: The role 'geerlingguy.docker' was not found in: ...
 ```
 
-The `geerlingguy.docker` role is an external Galaxy role that must be installed before running any playbook. It is not bundled with the repository.
+The `geerlingguy.docker` role is an external Galaxy role that you must install
+before running any playbook because that role is not bundled with this repository.
 
 **Fix:** Run `ansible-galaxy install` from the `ansible/` directory:
 
@@ -562,7 +621,7 @@ This installs all roles and collections declared in `requirements.yaml`, includi
 
 Ansible only requires that the locale encoding on the control machine be UTF-8. It does not require a specific language or region. This error appears when the locale is set to a non-UTF-8 charset — for example, `it_IT` (ISO-8859-1) instead of `it_IT.UTF-8`.
 
-**Fix:** Keep your locale; just add the `.UTF-8` charset suffix:
+**Fix:** Keep your locale; add the `.UTF-8` charset suffix:
 
 ```bash
 export LANG=it_IT.UTF-8
@@ -745,7 +804,7 @@ ansible-playbook update-security-group.yaml \
   -e custom_port_description="My application"
 ```
 
-The playbook is non-destructive (`purge_rules: false`) and checks for duplicate rules before adding. Ports added this way are **not tracked in Terraform state** and will be absent if you run `terraform apply` with a list that does not include them.
+The playbook is non-destructive (`purge_rules: false`) and checks for duplicate rules before adding. Ports added this way are **not tracked in Terraform state** and are absent when you run `terraform apply` with a list that does not include them.
 
 ---
 
@@ -798,7 +857,7 @@ Roles applied by `consul_clients` (in order):
 | `common` | Sets hostname, installs base packages |
 | `geerlingguy.docker` | Installs Docker CE; adds `ubuntu` user to the docker group |
 | `helper` | Installs apt packages: jq, net-tools, unzip, nano, curl |
-| `consul` | Installs Consul 2.0.1 in client mode; Cloud Auto-Join finds servers via `AutoJoinRole=server` tag |
+| `consul` | Installs Consul 2.0.1 in client mode; Cloud Auto-Join finds servers using the `AutoJoinRole=server` tag |
 
 Key configuration values applied by `consul_clients`:
 
