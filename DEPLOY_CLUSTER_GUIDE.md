@@ -73,8 +73,6 @@ Each of the following use cases is a complete end-to-end checklist. Steps 1–4 
 for all use cases. Follow only the checklist for your use case — each step links
 to the detailed section in this guide.
 
----
-
 ### Use case A: Consul cluster only
 
 1. **[Install prerequisites](#prerequisites)**
@@ -180,6 +178,90 @@ export AWS_PROFILE="your-profile-name"
 # Verify
 aws sts get-caller-identity
 ```
+
+---
+
+## Configuration reference
+
+### Terraform variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `aws_region` | `us-east-2` | AWS region |
+| `project_name` | `nomad-consul` | Resource name prefix |
+| `owner` | `devops-team` | Owner tag |
+| `environment` | `dev` | Environment tag |
+| `vpc_cidr` | `10.0.0.0/16` | VPC CIDR block |
+| `subnet_cidr` | `10.0.1.0/24` | Public subnet CIDR |
+| `allowed_ssh_cidr` | `0.0.0.0/0` | CIDR allowed for SSH |
+| `server_count` | `3` | Number of server EC2 instances |
+| `client_count` | `2` | Number of client EC2 instances |
+| `server_instance_type` | `t3.medium` | Server EC2 instance type |
+| `client_instance_type` | `t3.medium` | Client EC2 instance type |
+
+Always set `allowed_ssh_cidr` to your specific IP address or network range.
+
+### Ansible variables — Consul
+
+Defaults: [`ansible/roles/consul/defaults/main.yaml`](ansible/roles/consul/defaults/main.yaml)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `consul_binary_version` | `2.0.1` | Consul release to install |
+| `consul_datacenter` | `dc1` | Datacenter name |
+| `consul_server_enabled` | `false` | Enable server mode |
+| `consul_server_bootstrap_expect` | `3` | Quorum size |
+| `consul_cloud_auto_join_enabled` | `false` | Enable AWS Cloud Auto-Join |
+| `consul_acl_enabled` | `false` | Enable ACLs |
+| `consul_tls_enabled` | `false` | Enable TLS |
+
+### Ansible variables — Nomad
+
+Defaults: [`ansible/roles/nomad/defaults/main.yaml`](ansible/roles/nomad/defaults/main.yaml)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `nomad_binary_version` | `2.0.4` | Nomad release to install |
+| `nomad_server_enabled` | `false` | Enable server mode |
+| `nomad_server_bootstrap_expect` | `3` | Quorum size |
+| `nomad_client_enabled` | `false` | Enable client mode |
+| `nomad_cloud_auto_join_enabled` | `false` | Enable AWS Cloud Auto-Join |
+| `nomad_acl_enabled` | `false` | Enable ACLs |
+| `nomad_tls_enabled` | `false` | Enable TLS |
+| `nomad_log_level` | `DEBUG` | Log level |
+
+---
+
+## Network security
+
+The security group allows:
+
+- **SSH (22)**: From `allowed_ssh_cidr`. The default value `0.0.0.0/0` is not appropriate for production. Set this to your specific IP address or network range.
+- **Consul HTTP API/UI (8500)**: From `0.0.0.0/0`. Restrict this in production.
+- **Nomad HTTP API/UI (4646)**: From `0.0.0.0/0`. Restrict this in production.
+- **All internal traffic**: Between instances sharing the security group
+- **Egress**: All outbound traffic allowed
+
+Refer to [ansible/README-SECURITY-GROUP.md](ansible/README-SECURITY-GROUP.md) for hardening guidance.
+
+### Default open ports
+
+| Port | Protocol | Service | Accessible from |
+|------|----------|---------|----------------|
+| 22 | TCP | SSH | `allowed_ssh_cidr` |
+| 8500 | TCP | Consul HTTP API & UI | `0.0.0.0/0` |
+| 8300 | TCP | Consul RPC | Internal (security group) |
+| 8301 | TCP/UDP | Consul Serf LAN | Internal (security group) |
+| 4646 | TCP | Nomad HTTP API & UI | `0.0.0.0/0` |
+| all | all | Internal cluster traffic | Internal (security group) |
+
+### IAM permissions
+
+Every EC2 instance receives an IAM instance profile with the following permissions for Consul Cloud Auto-Join:
+
+- `ec2:DescribeInstances`
+- `ec2:DescribeTags`
+- `autoscaling:DescribeAutoScalingGroups`
 
 ---
 
@@ -465,6 +547,17 @@ source ./set-cluster-env.sh
 The script reads the first server IP from `inventory.ini` and token values from
 `ansible/tokens/`. It only exports variables whose token files exist, so it
 works correctly for all four options.
+
+### Manual export (without the helper script)
+
+```bash
+export CONSUL_HTTP_ADDR=http://<server-ip>:8500
+export CONSUL_HTTP_TOKEN=$(cat ansible/tokens/consul-bootstrap-secret-id.txt)
+export NOMAD_ADDR=http://<server-ip>:4646
+export NOMAD_TOKEN=$(cat ansible/tokens/nomad-bootstrap-secret-id.txt)
+```
+
+Substitute `<server-ip>` with a server's public IP address from `terraform output` or `inventory.ini`.
 
 ---
 
