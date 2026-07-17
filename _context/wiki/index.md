@@ -11,6 +11,7 @@ scan the headings and follow only what is relevant to the current task.
 - [ansible/PLAYBOOKS-README.md](../../ansible/PLAYBOOKS-README.md) — per-playbook reference including variables, tags, and rendered-config inspection
 - [ansible/README.md](../../ansible/README.md) — Ansible role/variable overview and troubleshooting guide
 - [tls-enabled-by-default-plan.md](tls-enabled-by-default-plan.md) — Plan and reasoning for enabling TLS by default in both Consul and Nomad across all deploy scenarios: hybrid Consul HTTP/HTTPS model, Nomad TLS-only (no loopback exception), shared self-signed CA, and the JWKS/CA-trust fix required for Consul-Nomad workload identity integration.
+- [consul-service-mesh-plan.md](consul-service-mesh-plan.md) — **Proposal, not implemented.** Plan for a new Option E use case (`deploy_consul_nomad_mesh.yaml`) adding Consul service mesh (Connect) on top of Option D. Covers `consul_connect_enabled`/`grpc_tls` agent changes, the new Nomad `consul.grpc_ca_file`/`grpc_address` fields required for TLS-enabled Connect, the new `ingress` namespace + `builtin/api-gateway` binding rule (reusing the existing `nomad-workloads` auth method from workload identity), new (not modified) mesh job specs for Countdash and HashiCups, an explicit service-intentions allow-list, and a Consul API Gateway for external ingress.
 
 ## ACL architecture
 

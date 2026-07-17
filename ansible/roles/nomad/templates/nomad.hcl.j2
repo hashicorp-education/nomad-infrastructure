@@ -93,6 +93,13 @@ consul {
   address = "{{ nomad_consul_address }}"
   token   = "{{ nomad_consul_agent_token }}"
 
+{% if nomad_client_enabled and nomad_consul_connect_enabled %}
+  # Consul Connect (service mesh) gRPC integration. Envoy sidecars launched by
+  # this client talk to the local Consul agent's TLS-enabled gRPC xDS listener.
+  grpc_address = "{{ nomad_consul_grpc_address }}"
+  grpc_ca_file = "{{ nomad_consul_grpc_ca_file }}"
+
+{% endif %}
 {% if nomad_consul_workload_identity_enabled %}
   # Default workload identity for Nomad services registering in Consul.
   # Nomad servers inject this identity into all jobs that use the Consul

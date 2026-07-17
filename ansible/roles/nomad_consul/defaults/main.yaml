@@ -19,8 +19,11 @@
 
 # --- Phase control flags ---
 # Set to false to skip the corresponding phase when calling the role directly.
+# nomad_consul_run_service_mesh defaults to false (unlike the other two phases)
+# since it is only relevant to the Option E service mesh scenario.
 nomad_consul_run_service_discovery: true
 nomad_consul_run_workload_identity: true
+nomad_consul_run_service_mesh: false
 
 # --- Consul connection ---
 # Address of the local Consul HTTP API (adjust if TLS is enabled)
@@ -74,7 +77,7 @@ nomad_consul_auth_method_description: "JWT auth method for Nomad service and tas
 # Nomad's HTTP API is TLS-only when nomad_tls_enabled: true (the default); set
 # this to an http:// URL if Nomad TLS is disabled.
 nomad_consul_jwks_url: >-
-  https://{{ hostvars[groups['servers'][0]]['ansible_facts']['default_ipv4']['address'] }}:4646
+  https://{{ hostvars[groups['servers'][0]]['ansible_facts']['default_ipv4']['address'] }}:4646/.well-known/jwks.json
 
 # PEM-encoded CA certificate Consul uses to verify the TLS connection to
 # nomad_consul_jwks_url. Required when nomad_consul_jwks_url uses https:// with
@@ -89,3 +92,13 @@ nomad_consul_tasks_binding_rule_description: "Nomad workload identities for Cons
 # --- Consul ACL role (for tasks in the Nomad default namespace) ---
 nomad_consul_tasks_role_name: "nomad-tasks-default"
 nomad_consul_tasks_role_description: "ACL role for Nomad tasks in the default Nomad namespace"
+
+# --- Service mesh (Option E): API Gateway binding rule ---
+# Idempotency sentinel for the service mesh phase (separate from the workload
+# identity sentinel so the two phases can be run independently).
+nomad_consul_mesh_bootstrapped_file: "/opt/consul/data/nomad-consul-mesh-bootstrapped.true"
+
+# Nomad namespace the API Gateway job runs in. Must match the Nomad namespace
+# created by consul_nomad_service_mesh.yaml (`nomad namespace apply -name ingress`).
+nomad_consul_gateway_namespace: "ingress"
+nomad_consul_gateway_binding_rule_description: "Nomad API Gateway workload identity -> builtin/api-gateway templated policy"

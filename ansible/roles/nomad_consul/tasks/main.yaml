@@ -18,3 +18,7 @@
   ansible.builtin.include_tasks: workload_identity.yaml
   when: nomad_consul_run_workload_identity | bool
 
+- name: Configure Consul ACL binding rule for the Nomad API Gateway (service mesh)
+  ansible.builtin.include_tasks: service_mesh.yaml
+  when: nomad_consul_run_service_mesh | bool
+

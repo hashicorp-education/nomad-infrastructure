@@ -87,3 +87,11 @@ nomad_consul_task_identity_ttl: "1h"
 # Has no effect unless nomad_consul_integration_enabled is true and
 # nomad_consul_workload_identity_enabled is false.
 nomad_client_use_consul_token: false
+
+# Consul Connect (service mesh) gRPC integration — Nomad clients only.
+# Set to true after enabling `connect { enabled = true }` and grpc_tls on the
+# Consul agents (consul_nomad_service_mesh.yaml). Adds grpc_address/grpc_ca_file
+# to the client's consul{} block so Envoy sidecars can reach Consul over TLS.
+nomad_consul_connect_enabled: false
+nomad_consul_grpc_address: "127.0.0.1:8503"
+nomad_consul_grpc_ca_file: "{{ nomad_config_dir }}/.tls/ca.crt"

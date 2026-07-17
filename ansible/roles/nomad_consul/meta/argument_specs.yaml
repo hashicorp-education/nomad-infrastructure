@@ -98,3 +98,30 @@ argument_specs:
         description: >-
           Name of the Consul ACL role for Nomad tasks in the default Nomad
           namespace. Create additional roles for non-default namespaces.
+
+      nomad_consul_run_service_mesh:
+        type: bool
+        required: false
+        default: false
+        description: >-
+          When true, runs service_mesh.yaml to create the Consul ACL binding
+          rule that grants the Nomad API Gateway workload identity the
+          built-in api-gateway templated policy. Requires
+          nomad_consul_run_workload_identity to have already completed (the
+          nomad-workloads auth method must exist).
+
+      nomad_consul_mesh_bootstrapped_file:
+        type: str
+        required: false
+        default: "/opt/consul/data/nomad-consul-mesh-bootstrapped.true"
+        description: >-
+          Remote sentinel file (on the first Consul server) marking the
+          service mesh phase as complete.
+
+      nomad_consul_gateway_namespace:
+        type: str
+        required: false
+        default: "ingress"
+        description: >-
+          Nomad namespace the API Gateway job runs in. Must match the Nomad
+          namespace created by consul_nomad_service_mesh.yaml.

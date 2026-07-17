@@ -126,3 +126,28 @@ argument_specs:
           nomad_consul_integration_enabled is true and
           nomad_consul_workload_identity_enabled is false (service-discovery
           scenario). Introduced in Nomad 2.0.4.
+
+      nomad_consul_connect_enabled:
+        type: bool
+        required: false
+        default: false
+        description: >-
+          When true (Nomad clients only), adds grpc_address/grpc_ca_file to the
+          consul{} block so Envoy sidecar proxies can reach Consul's TLS-enabled
+          gRPC xDS listener. Requires Consul agents to have connect.enabled and
+          ports.grpc_tls configured (consul_nomad_service_mesh.yaml).
+
+      nomad_consul_grpc_address:
+        type: str
+        required: false
+        default: "127.0.0.1:8503"
+        description: Address of the local Consul agent's TLS-enabled gRPC listener.
+
+      nomad_consul_grpc_ca_file:
+        type: str
+        required: false
+        default: "{{ nomad_config_dir }}/.tls/ca.crt"
+        description: >-
+          Path to the CA certificate used to verify Consul's gRPC TLS listener.
+          Defaults to the same shared cluster CA already installed for Nomad's
+          own TLS.
