@@ -1,6 +1,6 @@
 # nomad-infrastructure Agent Guidelines
 
-Terraform + Ansible project that deploys a production-ready HashiCorp Nomad cluster (3 servers + 2 clients) **with a co-located Consul cluster** on AWS. Refer to [README.md](README.md) and [DEPLOY_CLUSTER_GUIDE.MD](DEPLOY_CLUSTER_GUIDE.MD) for full context.
+Terraform + Ansible project that deploys a production-ready HashiCorp Nomad cluster (3 servers + 2 clients) **with a co-located Consul cluster** on AWS. Refer to [README.md](README.md) and [DEPLOY_CLUSTER_GUIDE.md](DEPLOY_CLUSTER_GUIDE.md) for full context.
 
 ## Architecture
 
@@ -93,7 +93,7 @@ ansible-playbook -i inventory.ini playbooks/nomad_acl_bootstrap.yaml
 
 | Topic | File |
 |-------|------|
-| Full deployment walkthrough | [DEPLOY_CLUSTER_GUIDE.MD](DEPLOY_CLUSTER_GUIDE.MD) |
+| Full deployment walkthrough | [DEPLOY_CLUSTER_GUIDE.md](DEPLOY_CLUSTER_GUIDE.md) |
 | Terraform infrastructure | [terraform/aws/README.md](terraform/aws/README.md) |
 | Ansible playbooks | [ansible/PLAYBOOKS-README.md](ansible/PLAYBOOKS-README.md) |
 | ACL bootstrap procedure | [ansible/BOOTSTRAP_ACL_EXAMPLE.md](ansible/BOOTSTRAP_ACL_EXAMPLE.md) |
