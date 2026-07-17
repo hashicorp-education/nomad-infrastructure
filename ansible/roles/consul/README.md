@@ -21,7 +21,9 @@ Key variables (see `defaults/main.yaml` for the full list and defaults):
 | `consul_client_enabled` | `false` | Not used directly; set `consul_server_enabled: false` for a client agent |
 | `consul_datacenter` | `dc1` | Datacenter name |
 | `consul_bind_addr` | `{{ ansible_facts['default_ipv4']['address'] }}` | Address Consul binds to |
-| `consul_client_addr` | `0.0.0.0` | Address Consul listens on for HTTP/DNS/gRPC |
+| `consul_client_addr` | `0.0.0.0` | Address Consul listens on for HTTP/DNS/gRPC when TLS is disabled |
+| `consul_addr_http` | `127.0.0.1` | Address for the plain-HTTP API when TLS is enabled (loopback only, for local automation and Nomad's local `consul {}` integration) |
+| `consul_addr_https` | `0.0.0.0` | Address for the HTTPS API when TLS is enabled |
 | `consul_cloud_auto_join_enabled` | `false` | Enable AWS cloud auto-join via `retry_join` |
 | `consul_cloud_auto_join_tag_key` | `AutoJoinRole` | EC2 tag key for cloud auto-join |
 | `consul_cloud_auto_join_tag_value` | `server` | EC2 tag value for cloud auto-join |
@@ -30,7 +32,7 @@ Key variables (see `defaults/main.yaml` for the full list and defaults):
 | `consul_acl_enable_token_persistence` | `true` | Persist tokens to the agent data dir so they survive restarts |
 | `consul_acl_agent_token` | `""` | Per-node agent token written into `acl.tokens.agent`. Set by `consul_dns_token.yaml` to a node-identity token for each client. Empty by default — the `tokens {}` block is omitted when both agent and DNS tokens are unset. |
 | `consul_acl_dns_token` | `""` | Shared DNS token written into `acl.tokens.dns`. Set by `consul_dns_token.yaml`. Allows the Consul agent to answer DNS queries when ACL default-deny is active. Empty by default. |
-| `consul_tls_enabled` | `false` | Enable TLS (requires certs in `consul_tls_dir`) |
+| `consul_tls_enabled` | `true` | Enable TLS (requires certs in `consul_tls_dir`). Splits access into a loopback plain-HTTP listener (`consul_addr_http`) and an external HTTPS listener (`consul_addr_https`); the `tls{}` stanza is split into `https{}` (API, `verify_incoming: false`) and `internal_rpc{}` (full mTLS) |
 | `consul_gossip_encryption_enabled` | `false` | Enable gossip encryption |
 | `consul_gossip_encryption_key` | `""` | Base64 gossip key (generate with `consul keygen`) |
 | `consul_connect_enabled` | `false` | Enable Consul Connect (service mesh) |
@@ -43,12 +45,18 @@ This role targets the Terraform-generated inventory groups directly:
 
 ## TLS
 
-When `consul_tls_enabled: true`, certificates must exist at:
+TLS is enabled by default (`consul_tls_enabled: true`). Certificates must exist at:
 - `{{ consul_tls_dir }}/ca.pem`
 - `{{ consul_tls_dir }}/consul.pem`
 - `{{ consul_tls_dir }}/consul-key.pem`
 
 Use the `tls` role (bundled in this repo) to generate a self-signed CA and node certificates on the control host, then distribute them via the `helper` role as shown in `consul_servers.yaml`.
+
+When TLS is enabled, Consul uses a hybrid access model:
+- Plain HTTP stays on `consul_addr_http` (default `127.0.0.1:8500`, loopback only) for local automation and Nomad's local `consul {}` integration.
+- HTTPS is exposed on `consul_addr_https:consul_port_https` (default `0.0.0.0:8443`).
+
+Client-certificate verification is disabled on the HTTPS API (`verify_incoming: false` in the `tls.https{}` stanza) — security relies on ACLs, not mTLS, for API access. Full mutual TLS (`verify_incoming`/`verify_outgoing`/`verify_server_hostname: true`) is enforced on the `tls.internal_rpc{}` stanza used for server-to-server traffic. Set `consul_tls_enabled: false` to disable TLS entirely.
 
 ## Cloud auto-join
 
@@ -73,6 +81,7 @@ ansible-playbook -i inventory.ini consul_clients.yaml
 | 8300 | TCP | Server RPC |
 | 8301 | TCP/UDP | Serf LAN gossip |
 | 8302 | TCP/UDP | Serf WAN gossip |
-| 8500 | TCP | HTTP API / UI |
+| 8500 | TCP | HTTP API / UI (loopback only when TLS is enabled) |
+| 8443 | TCP | HTTPS API / UI (when TLS is enabled) |
 | 8502 | TCP | gRPC |
 | 8600 | TCP/UDP | DNS |

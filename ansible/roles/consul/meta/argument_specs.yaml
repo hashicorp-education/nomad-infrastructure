@@ -83,8 +83,29 @@ argument_specs:
         required: false
         default: "0.0.0.0"
         description: >
-          Address Consul listens on for HTTP/DNS/gRPC client requests.
-          Restrict to 127.0.0.1 in production to prevent unwanted API exposure.
+          Address Consul listens on for HTTP/DNS/gRPC client requests when
+          consul_tls_enabled is false. Restrict to 127.0.0.1 in production to
+          prevent unwanted API exposure.
+
+      consul_addr_http:
+        type: str
+        required: false
+        default: "127.0.0.1"
+        description: >
+          Address the plain-HTTP listener binds to in the addresses{} block,
+          rendered only when consul_tls_enabled is true. Loopback-only by
+          default so plain HTTP remains available for local automation and
+          Nomad's local consul{} integration without being reachable
+          externally.
+
+      consul_addr_https:
+        type: str
+        required: false
+        default: "0.0.0.0"
+        description: >
+          Address the HTTPS listener binds to in the addresses{} block,
+          rendered only when consul_tls_enabled is true. 0.0.0.0 exposes the
+          HTTPS API/UI on all interfaces.
 
       consul_cloud_auto_join_enabled:
         type: bool
@@ -144,10 +165,14 @@ argument_specs:
       consul_tls_enabled:
         type: bool
         required: false
-        default: false
+        default: true
         description: >
           Enable TLS for agent communication. Requires certificates in
-          consul_tls_dir before the role runs.
+          consul_tls_dir before the role runs. Splits the tls{} block into
+          https{} (verify_incoming=false, CA-trust-only API access) and
+          internal_rpc{} (full mTLS, verify_server_hostname=true), and renders
+          the addresses{} block (consul_addr_http/consul_addr_https) for the
+          hybrid loopback-HTTP + external-HTTPS access model.
 
       consul_gossip_encryption_enabled:
         type: bool

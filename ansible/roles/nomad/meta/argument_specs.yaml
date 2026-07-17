@@ -49,7 +49,7 @@ argument_specs:
       nomad_tls_enabled:
         type: bool
         required: false
-        default: false
+        default: true
         description: Enable TLS for Nomad HTTP and RPC.
 
       nomad_consul_integration_enabled:

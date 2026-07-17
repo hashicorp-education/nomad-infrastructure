@@ -18,7 +18,7 @@
     nomad_acl_enabled: true
     nomad_log_level: "DEBUG"
     nomad_enable_debug: true
-    nomad_tls_enabled: false
+    nomad_tls_enabled: true
 
   roles:
   - role: common
@@ -27,11 +27,10 @@
 
   - role: tls
     when: nomad_tls_enabled
-  - role: tls
     tls_self_signed_generate:
     - agent-name: "{{ inventory_hostname }}"
       ip: "{{ ansible_facts['default_ipv4']['address'] }}"
-      dns: "client.global.nomad"
+      dns: "server.global.nomad"
 
   - role: helper
     vars:

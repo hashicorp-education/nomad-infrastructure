@@ -44,9 +44,17 @@ consul_client_enabled: false
 # Network addresses
 # consul_bind_addr defaults to the default IPv4 address discovered by Ansible
 consul_bind_addr: "{{ ansible_facts['default_ipv4']['address'] }}"
-# consul_client_addr controls the address Consul listens on for HTTP/DNS/gRPC.
-# 0.0.0.0 makes the UI and API reachable on all interfaces; restrict in production.
+# consul_client_addr controls the address Consul listens on for HTTP/DNS/gRPC
+# when TLS is disabled. 0.0.0.0 makes the UI and API reachable on all
+# interfaces; restrict in production.
 consul_client_addr: "0.0.0.0"
+
+# consul_addr_http / consul_addr_https drive the addresses{} block, rendered
+# only when consul_tls_enabled. This implements a hybrid model: plain HTTP
+# stays on loopback for local automation and Nomad's local consul{}
+# integration, while HTTPS is exposed on all interfaces.
+consul_addr_http: "127.0.0.1"
+consul_addr_https: "0.0.0.0"
 
 # Ports (Consul defaults)
 consul_port_http: 8500
@@ -78,7 +86,7 @@ consul_acl_agent_token: ""
 consul_acl_dns_token: ""
 
 # TLS configuration
-consul_tls_enabled: false
+consul_tls_enabled: true
 
 # Gossip encryption
 # Generate a key with: consul keygen

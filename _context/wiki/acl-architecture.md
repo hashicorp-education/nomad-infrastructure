@@ -443,7 +443,8 @@ Nomad server                Nomad client                Consul agent
      │                           │                           │
      │                           │    Consul validates JWT   │
      │                           │    against Nomad JWKS URL │
-     │                           │    (http://<server>:4646/.well-known/jwks.json)
+     │                           │    (https://<server>:4646/.well-known/jwks.json,
+     │                           │     CA-trusted via nomad_consul_jwks_ca_cert)
      │                           │                           │
      │                           │    Binding rule matches:  │
      │                           │    nomad_service claim    │
@@ -459,8 +460,10 @@ Nomad server                Nomad client                Consul agent
 ```
 
 The JWT is signed by Nomad using the keypair at
-`http://<first-server>:4646/.well-known/jwks.json`. Consul validates the
-signature before issuing a token. The resulting token expires after the TTL
+`https://<first-server>:4646/.well-known/jwks.json`. Consul validates the
+signature before issuing a token, trusting the shared self-signed CA via
+`nomad_consul_jwks_ca_cert` (auto-populated from `ansible/.tls/ca.pem`). The
+resulting token expires after the TTL
 (`1h` by default) and is automatically renewed by the Nomad client while the
 allocation is running.
 

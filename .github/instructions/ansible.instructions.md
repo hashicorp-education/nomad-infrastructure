@@ -14,9 +14,11 @@ applyTo: "ansible/**"
 
 ## TLS And Certificates
 
-- Preserve the existing TLS flow: generate certs on the Ansible control host via the `tls` role, then distribute to nodes via the `helper` role.
+- TLS is enabled by default for both Consul and Nomad (`consul_tls_enabled: true`, `nomad_tls_enabled: true`). Preserve the existing TLS flow: generate certs on the Ansible control host via the `tls` role, then distribute to nodes via the `helper` role. Both products share a single self-signed CA (`ansible/.tls/ca.pem`).
+- Nomad has **no loopback exception** — when `nomad_tls_enabled: true`, both its HTTP API (4646) and RPC layer are TLS-only. Consul uses a **hybrid model** — plain HTTP is served on `127.0.0.1:8500` (loopback only) alongside HTTPS on `0.0.0.0:8443` (`consul_addr_http`/`consul_addr_https`/`consul_port_https`).
 - Do not change certificate file paths or permissions without checking `ansible/roles/tls/README.md`, `ansible/roles/nomad/README.md`, and `ansible/roles/consul/README.md`.
 - Never commit generated certificate artifacts under `ansible/.tls/`.
+- Any downstream integration that calls another product's HTTP API (e.g. Consul's JWKS fetch against Nomad) must use the correct scheme (`https://` when the target has TLS enabled) and, for self-signed certs, a CA trust setting (e.g. `nomad_consul_jwks_ca_cert`).
 
 ## Role And Variable Patterns
 
@@ -45,7 +47,7 @@ applyTo: "ansible/**"
 ## Security-Safe Edits
 
 - Treat these as sensitive and never expose them in output or commits: `ansible/ssh_key.pem`, `ansible/tokens/` (all token files), and `ansible/.tls/` (generated TLS files).
-- When changing firewall/security guidance, preserve warnings that default SSH exposure, Nomad UI (port 4646), and Consul UI (port 8500) exposure must be restricted for production.
+- When changing firewall/security guidance, preserve warnings that default SSH exposure, Nomad UI (port 4646, HTTPS by default), Consul HTTPS UI (port 8443), and Consul plain HTTP (port 8500, loopback only) exposure must be restricted for production.
 - Keep ACL behavior explicit: this repo defaults to disabled ACLs (`nomad_acl_enabled: false`, `consul_acl_enabled: false`). ACL bootstrap is included automatically in all four deploy entrypoints. The `playbooks/consul_acl_bootstrap.yaml` and `playbooks/nomad_acl_bootstrap.yaml` sub-playbooks can be run separately for manual operations.
 - Token files are written to `ansible/tokens/` (mode 0600). The directory is created automatically by the bootstrap playbooks. Never commit anything under `ansible/tokens/`.
 - Add `no_log: true` to any task that renders or transmits secrets (gossip keys, ACL tokens, TLS private keys).
@@ -63,7 +65,7 @@ applyTo: "ansible/**"
 - `service_identity` and `task_identity` blocks belong in the Nomad **server** config only; never in the client config.
 - Binding rules that use a selector string must use the `shell` module (not `command`) because shell quoting is required.
 - ACL policies, tokens, and binding rules are created by `playbooks/consul_nomad_service_discovery.yaml` (Phase 1) and `playbooks/consul_nomad_workload_identity.yaml` (Phase 2). Run Phase 1 before Phase 2.
-- The Consul JWT auth method (`nomad-workloads`) points its JWKS URL at the **first Nomad server** port 4646.
+- The Consul JWT auth method (`nomad-workloads`) points its JWKS URL at the **first Nomad server** port 4646, using `https://` by default (Nomad's HTTP API is TLS-only when `nomad_tls_enabled: true`) with `nomad_consul_jwks_ca_cert` set from the shared CA for cert trust.
 - Consul agent tokens for Nomad are saved to `ansible/tokens/nomad-consul-server-secret-id.txt` and `ansible/tokens/nomad-consul-client-secret-id.txt`.
 
 ## Validation Expectations

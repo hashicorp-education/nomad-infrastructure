@@ -69,6 +69,29 @@ This role is used in both server and client playbooks for various utility operat
         mode: "0600"
 ```
 
+**Consul playbooks** (`playbooks/consul_servers.yaml`, `playbooks/consul_clients.yaml`) — same pattern, owned by the `consul` user/group instead of root:
+```yaml
+- role: helper
+  when: consul_tls_enabled | bool
+  vars:
+    helper_file_copy_local:
+      - src: "{{ inventory_dir }}/.tls/ca.pem"
+        dst: "{{ consul_tls_dir }}/ca.pem"
+        owner: "{{ consul_user }}"
+        group: "{{ consul_group }}"
+        mode: "0644"
+      - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}.pem"
+        dst: "{{ consul_tls_dir }}/consul.pem"
+        owner: "{{ consul_user }}"
+        group: "{{ consul_group }}"
+        mode: "0644"
+      - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}-key.pem"
+        dst: "{{ consul_tls_dir }}/consul-key.pem"
+        owner: "{{ consul_user }}"
+        group: "{{ consul_group }}"
+        mode: "0600"
+```
+
 ## Feature Details
 
 ### 1. Package management

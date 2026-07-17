@@ -32,7 +32,7 @@ The nomad role installs and configures HashiCorp Nomad v2.0.4 on both server and
 | `nomad_client_enabled` | bool | `false` | Enable client mode |
 | `nomad_client_servers` | list | `[]` | List of server addresses |
 | `nomad_acl_enabled` | bool | `false` | Enable ACL system |
-| `nomad_tls_enabled` | bool | `false` | Enable TLS |
+| `nomad_tls_enabled` | bool | `true` | Enable TLS for Nomad HTTP and RPC. Nomad has no loopback exception — when enabled, both layers are TLS-only |
 | `nomad_telemetry_enabled` | bool | `false` | Enable telemetry |
 | `nomad_telemetry_prometheus_metrics` | bool | `false` | Enable Prometheus metrics |
 | `nomad_log_level` | string | `INFO` | Logging level |
@@ -222,8 +222,9 @@ sudo journalctl -u nomad -f
 
 Prometheus metrics are exposed at:
 ```
-http://<nomad-address>:4646/v1/metrics?format=prometheus
+https://<nomad-address>:4646/v1/metrics?format=prometheus
 ```
+(`http://` when `nomad_tls_enabled: false`)
 
 ## ACL bootstrap
 
@@ -274,7 +275,7 @@ nomad agent-info | grep servers
 - Runs as root by default (required for Docker access)
 - Configuration files have restrictive permissions (0600)
 - Consider enabling ACLs for production
-- Use TLS for production deployments
+- TLS is enabled by default (`nomad_tls_enabled: true`); Nomad's HTTP and RPC layers are TLS-only with no loopback exception
 - Restrict network access via security groups
 
 ## Upgrade process

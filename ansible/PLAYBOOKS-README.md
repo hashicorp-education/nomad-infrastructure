@@ -78,8 +78,9 @@ ansible-playbook -i inventory.ini deploy_consul.yaml
 
 **Status summary outputs:**
 - Consul bootstrap token
-- `export CONSUL_HTTP_ADDR=http://<server-ip>:8500`
+- `export CONSUL_HTTP_ADDR=https://<server-ip>:8443`
 - `export CONSUL_HTTP_TOKEN=<token>`
+- `export CONSUL_CACERT=ansible/.tls/ca.pem`
 - SSH access commands and Consul UI URL
 
 ---
@@ -107,8 +108,9 @@ ansible-playbook -i inventory.ini deploy_nomad.yaml
 
 **Status summary outputs:**
 - Nomad bootstrap token
-- `export NOMAD_ADDR=http://<server-ip>:4646`
+- `export NOMAD_ADDR=https://<server-ip>:4646`
 - `export NOMAD_TOKEN=<token>`
+- `export NOMAD_CACERT=ansible/.tls/ca.pem`
 - SSH access commands and Nomad UI URL
 
 ---
@@ -189,7 +191,7 @@ consul acl auth-method list
 
 ### set-cluster-env.sh
 
-Sets `CONSUL_HTTP_ADDR`, `CONSUL_HTTP_TOKEN`, `NOMAD_ADDR`, and `NOMAD_TOKEN` by reading the first server IP from `inventory.ini` and the token values from the `ansible/tokens/` directory.
+Sets `CONSUL_HTTP_ADDR`, `CONSUL_HTTP_TOKEN`, `CONSUL_CACERT`, `NOMAD_ADDR`, `NOMAD_TOKEN`, and `NOMAD_CACERT` by reading the first server IP from `inventory.ini` and the token values from the `ansible/tokens/` directory.
 
 Only the variables whose token files exist are set. For example, after running `deploy_nomad.yaml` only `NOMAD_ADDR` and `NOMAD_TOKEN` are set.
 
@@ -203,15 +205,17 @@ Example output:
 ```
 Setting cluster environment variables (server: 1.2.3.4):
 
-  CONSUL_HTTP_ADDR=http://1.2.3.4:8500
+  CONSUL_HTTP_ADDR=https://1.2.3.4:8443
   CONSUL_HTTP_TOKEN=(set from tokens/consul-bootstrap-secret-id.txt)
-  NOMAD_ADDR=http://1.2.3.4:4646
+  CONSUL_CACERT=(set from .tls/ca.pem, if present)
+  NOMAD_ADDR=https://1.2.3.4:4646
   NOMAD_TOKEN=(set from tokens/nomad-bootstrap-secret-id.txt)
+  NOMAD_CACERT=(set from .tls/ca.pem, if present)
 ```
 
 ### unset-cluster-env.sh
 
-Unsets `CONSUL_HTTP_ADDR`, `CONSUL_HTTP_TOKEN`, `NOMAD_ADDR`, and `NOMAD_TOKEN`.
+Unsets `CONSUL_HTTP_ADDR`, `CONSUL_HTTP_TOKEN`, `CONSUL_CACERT`, `NOMAD_ADDR`, `NOMAD_TOKEN`, and `NOMAD_CACERT`.
 
 ```bash
 # Must be sourced, not executed directly
@@ -243,6 +247,8 @@ ansible-playbook -i inventory.ini playbooks/consul_servers.yaml
 | `common` | Sets hostname, installs base system packages |
 | `geerlingguy.docker` | Installs Docker CE; adds `ubuntu` user to the docker group |
 | `helper` | Installs apt packages: jq, net-tools, unzip, nano, curl |
+| `tls` | Generates self-signed TLS certificates on the control machine (skipped when `consul_tls_enabled: false`) |
+| `helper` | Copies TLS certs to `{{ consul_tls_dir }}` owned by the `consul` user (skipped when `consul_tls_enabled: false`) |
 | `consul` | Installs Consul 2.0.1, writes `/etc/consul.d/consul.hcl`, creates systemd unit, starts service |
 
 **Key variables set by this playbook:**
@@ -257,9 +263,10 @@ ansible-playbook -i inventory.ini playbooks/consul_servers.yaml
 | `consul_cloud_auto_join_tag_key` | `AutoJoinRole` |
 | `consul_cloud_auto_join_tag_value` | `server` |
 | `consul_acl_enabled` | `true` |
-| `consul_tls_enabled` | `false` |
+| `consul_tls_enabled` | `true` |
+| `consul_port_https` | `8443` |
 
-**Post-tasks:** Waits for Consul HTTP API on `127.0.0.1:8500`, then prints `http://<host>:8500/ui`.
+**Post-tasks:** Waits for Consul HTTP API on `127.0.0.1:8500`, then prints `https://<host>:8443/ui`.
 
 ---
 
@@ -280,6 +287,8 @@ ansible-playbook -i inventory.ini playbooks/consul_clients.yaml
 | `common` | Sets hostname, installs base system packages |
 | `geerlingguy.docker` | Installs Docker CE |
 | `helper` | Installs apt packages: jq, net-tools, unzip, nano, curl |
+| `tls` | Generates self-signed TLS certificates on the control machine (skipped when `consul_tls_enabled: false`) |
+| `helper` | Copies TLS certs to `{{ consul_tls_dir }}` owned by the `consul` user (skipped when `consul_tls_enabled: false`) |
 | `consul` | Installs Consul 2.0.1 in client mode, joins server cluster via Cloud Auto-Join |
 
 **Key variables set by this playbook:**
@@ -292,7 +301,8 @@ ansible-playbook -i inventory.ini playbooks/consul_clients.yaml
 | `consul_cloud_auto_join_tag_key` | `AutoJoinRole` |
 | `consul_cloud_auto_join_tag_value` | `server` |
 | `consul_acl_enabled` | `false` (ACL is enabled by `consul_dns_token.yaml` in a later step) |
-| `consul_tls_enabled` | `false` |
+| `consul_tls_enabled` | `true` |
+| `consul_port_https` | `8443` |
 
 **Post-tasks:** Waits for Consul HTTP API on `127.0.0.1:8500`.
 
@@ -438,12 +448,12 @@ ansible-playbook -i inventory.ini playbooks/nomad_servers.yaml
 | `nomad_client_enabled` | `false` |
 | `nomad_cloud_auto_join_enabled` | `false` |
 | `nomad_acl_enabled` | `true` |
-| `nomad_tls_enabled` | `false` |
+| `nomad_tls_enabled` | `true` |
 | `nomad_log_level` | `DEBUG` |
 
 **How Nomad servers discover each other:** The `nomad.hcl` template generates a static `server_join.retry_join` list using the private IP of every host in the `[servers]` inventory group. Cloud Auto-Join is not used for Nomad.
 
-**Post-tasks:** Waits for Nomad HTTP API on port 4646.
+**Post-tasks:** Waits for Nomad HTTPS API on port 4646.
 
 ---
 
@@ -476,13 +486,13 @@ ansible-playbook -i inventory.ini playbooks/nomad_clients.yaml
 | `nomad_client_enabled` | `true` |
 | `nomad_cloud_auto_join_enabled` | `false` |
 | `nomad_acl_enabled` | `true` |
-| `nomad_tls_enabled` | `false` |
+| `nomad_tls_enabled` | `true` |
 | `nomad_log_level` | `DEBUG` |
 | `nomad_client_use_consul_token` | `true` (passes the Consul agent token through to `template {}` blocks when using service discovery without workload identity) |
 
 **How Nomad clients find servers:** Same as servers — static `server_join.retry_join` list of server private IPs from the `[servers]` inventory group.
 
-**Post-tasks:** Waits for Nomad HTTP API on port 4646.
+**Post-tasks:** Waits for Nomad HTTPS API on port 4646.
 
 ---
 
@@ -780,7 +790,7 @@ ansible-playbook -i inventory.ini playbooks/consul_servers.yaml playbooks/consul
 | `consul_server_bootstrap_expect` | `{{ groups['servers'] \| length }}` | Quorum size |
 | `consul_cloud_auto_join_enabled` | `true` | Enables AWS Cloud Auto-Join |
 | `consul_acl_enabled` | `true` | Enables ACLs |
-| `consul_tls_enabled` | `false` | Enables TLS |
+| `consul_tls_enabled` | `true` | Enables TLS |
 
 ### Nomad server variables (`nomad_servers.yaml`)
 
@@ -790,7 +800,7 @@ ansible-playbook -i inventory.ini playbooks/consul_servers.yaml playbooks/consul
 | `nomad_server_enabled` | `true` | Enables server mode |
 | `nomad_server_bootstrap_expect` | `{{ groups['servers'] \| length }}` | Quorum size |
 | `nomad_acl_enabled` | `true` | Enables ACLs |
-| `nomad_tls_enabled` | `false` | Enables TLS |
+| `nomad_tls_enabled` | `true` | Enables TLS |
 
 ### Consul-Nomad integration variables
 
@@ -800,7 +810,8 @@ ansible-playbook -i inventory.ini playbooks/consul_servers.yaml playbooks/consul
 | `nomad_consul_run_workload_identity` | `true` | playbook `vars:` | Set `false` to skip workload identity |
 | `nomad_consul_integration_enabled` | `false` | playbook `vars:` | Set `true` to write the `consul { address token }` block in `nomad.hcl` |
 | `nomad_consul_workload_identity_enabled` | `false` | playbook `vars:` | Set `true` to add `service_identity` and `task_identity` blocks in `nomad.hcl` (servers only) |
-| `nomad_consul_jwks_url` | First server IP on port 4646 | `roles/nomad_consul/defaults/main.yaml` | JWKS URL Consul uses to validate Nomad JWTs; point to a load balancer in production |
+| `nomad_consul_jwks_url` | First server HTTPS address on port 4646 | `roles/nomad_consul/defaults/main.yaml` | JWKS URL Consul uses to validate Nomad JWTs; point to a load balancer in production |
+| `nomad_consul_jwks_ca_cert` | `""` (auto-populated from `ansible/.tls/ca.pem`) | `roles/nomad_consul/defaults/main.yaml` | PEM CA cert Consul uses to trust the self-signed Nomad HTTPS endpoint when fetching JWKS |
 
 ### Skipping workload identity
 
@@ -821,7 +832,7 @@ ansible-playbook -i inventory.ini playbooks/consul_nomad_workload_identity.yaml
 
 ## TLS certificates
 
-TLS is disabled by default. To enable it, set `nomad_tls_enabled: true` in both `nomad_servers.yaml` and `nomad_clients.yaml` before running those playbooks.
+TLS is enabled by default (`consul_tls_enabled: true`, `nomad_tls_enabled: true`). To disable it, set the relevant variable to `false` in `consul_servers.yaml`/`consul_clients.yaml` or `nomad_servers.yaml`/`nomad_clients.yaml` before running those playbooks.
 
 The `tls` role generates self-signed certificates on the Ansible control machine and stores them in `ansible/.tls/`:
 
@@ -833,7 +844,9 @@ ansible/.tls/
 └── <hostname>-key.pem        # Per-node private key (sensitive)
 ```
 
-The `helper` role copies these to `/etc/nomad.d/.tls/` on each node.
+The `helper` role copies these to `/etc/nomad.d/.tls/` (owned by the `nomad` user) and `/etc/consul.d/tls/` (owned by the `consul` user) on each node.
+
+Consul uses a hybrid access model: plain HTTP stays on `127.0.0.1:8500` (loopback, for local automation and Nomad's local `consul {}` integration) while HTTPS is exposed on `0.0.0.0:8443`. Nomad has no loopback exception — both its HTTP and RPC layers are TLS-only when `nomad_tls_enabled: true`.
 
 ---
 
@@ -853,13 +866,13 @@ nomad_binary_version: "2.0.4"
 
 Then re-run the relevant playbook.
 
-### Enable TLS
+### Disable TLS
 
-Add to `nomad_servers.yaml` and `nomad_clients.yaml` vars:
+TLS is enabled by default. Add to `nomad_servers.yaml`/`nomad_clients.yaml` or `consul_servers.yaml`/`consul_clients.yaml` vars to disable it:
 
 ```yaml
 vars:
-  nomad_tls_enabled: true
+  nomad_tls_enabled: false   # or consul_tls_enabled: false
 ```
 
 ### Change log level

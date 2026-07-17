@@ -72,13 +72,22 @@ resource "aws_security_group" "nomad_consul_sg" {
     description = "SSH access"
   }
 
-# Consul HTTP API and UI
+# Consul HTTP API and UI (only reachable when consul_tls_enabled: false)
   ingress {
     from_port   = 8500
     to_port     = 8500
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
-    description = "Consul UI and HTTP API"
+    description = "Consul UI and HTTP API (used only when TLS is disabled)"
+  }
+
+# Consul HTTPS API and UI
+  ingress {
+    from_port   = 8443
+    to_port     = 8443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Consul UI and HTTPS API"
   }
 
 

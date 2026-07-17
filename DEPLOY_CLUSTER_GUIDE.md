@@ -213,7 +213,7 @@ Defaults: [`ansible/roles/consul/defaults/main.yaml`](ansible/roles/consul/defau
 | `consul_server_bootstrap_expect` | `3` | Quorum size |
 | `consul_cloud_auto_join_enabled` | `false` | Enable AWS Cloud Auto-Join |
 | `consul_acl_enabled` | `false` | Enable ACLs |
-| `consul_tls_enabled` | `false` | Enable TLS |
+| `consul_tls_enabled` | `true` | Enable TLS |
 
 ### Ansible variables — Nomad
 
@@ -227,7 +227,7 @@ Defaults: [`ansible/roles/nomad/defaults/main.yaml`](ansible/roles/nomad/default
 | `nomad_client_enabled` | `false` | Enable client mode |
 | `nomad_cloud_auto_join_enabled` | `false` | Enable AWS Cloud Auto-Join |
 | `nomad_acl_enabled` | `false` | Enable ACLs |
-| `nomad_tls_enabled` | `false` | Enable TLS |
+| `nomad_tls_enabled` | `true` | Enable TLS |
 | `nomad_log_level` | `DEBUG` | Log level |
 
 ---
@@ -237,8 +237,9 @@ Defaults: [`ansible/roles/nomad/defaults/main.yaml`](ansible/roles/nomad/default
 The security group allows:
 
 - **SSH (22)**: From `allowed_ssh_cidr`. The default value `0.0.0.0/0` is not appropriate for production. Set this to your specific IP address or network range.
-- **Consul HTTP API/UI (8500)**: From `0.0.0.0/0`. Restrict this in production.
-- **Nomad HTTP API/UI (4646)**: From `0.0.0.0/0`. Restrict this in production.
+- **Consul HTTP API/UI (8500)**: Plain HTTP, loopback only (`127.0.0.1`) — not reachable from the security group. Used for local automation and Nomad's local `consul {}` integration.
+- **Consul HTTPS API/UI (8443)**: From `0.0.0.0/0`. TLS is enabled by default. Restrict this in production.
+- **Nomad HTTPS API/UI (4646)**: From `0.0.0.0/0`. TLS is enabled by default (Nomad has no plain-HTTP loopback exception). Restrict this in production.
 - **All internal traffic**: Between instances sharing the security group
 - **Egress**: All outbound traffic allowed
 
@@ -249,10 +250,11 @@ Refer to [ansible/README-SECURITY-GROUP.md](ansible/README-SECURITY-GROUP.md) fo
 | Port | Protocol | Service | Accessible from |
 |------|----------|---------|----------------|
 | 22 | TCP | SSH | `allowed_ssh_cidr` |
-| 8500 | TCP | Consul HTTP API & UI | `0.0.0.0/0` |
+| 8500 | TCP | Consul HTTP API & UI (plain HTTP) | Loopback only (`127.0.0.1`) |
+| 8443 | TCP | Consul HTTPS API & UI | `0.0.0.0/0` |
 | 8300 | TCP | Consul RPC | Internal (security group) |
 | 8301 | TCP/UDP | Consul Serf LAN | Internal (security group) |
-| 4646 | TCP | Nomad HTTP API & UI | `0.0.0.0/0` |
+| 4646 | TCP | Nomad HTTP(S) API & UI | `0.0.0.0/0` |
 | all | all | Internal cluster traffic | Internal (security group) |
 
 ### IAM permissions
@@ -342,7 +344,7 @@ Type `yes` when prompted. Terraform takes approximately five minutes to complete
 | Public subnet | `10.0.1.0/24`, auto-assign public IPs |
 | Internet gateway | Attached to VPC |
 | Route table | Default route `0.0.0.0/0` → internet gateway |
-| Security group | Static: 22 (SSH), 8500 (Consul), 4646 (Nomad); configurable: `extra_ingress_ports` variable (default: 9002); all-internal |
+| Security group | Static: 22 (SSH), 8500 (Consul HTTP, loopback only), 8443 (Consul HTTPS), 4646 (Nomad); configurable: `extra_ingress_ports` variable (default: 9002); all-internal |
 | Server EC2 instances (×3) | Ubuntu 24.04, t3.medium, 50 GB gp3, tagged `AutoJoinRole=server` |
 | Client EC2 instances (×2) | Ubuntu 24.04, t3.medium, 50 GB gp3, tagged `AutoJoinRole=client` |
 | IAM instance profile | `ec2:DescribeInstances` for Cloud Auto-Join |
@@ -407,7 +409,7 @@ Sub-playbooks executed in order:
 | Step | Sub-playbook | Hosts | What it does |
 |------|-------------|-------|--------------|
 | 1 | `common_setup` | `all` | Configures passwordless sudo; tests Ansible connectivity (ping) |
-| 2 | `consul_servers` | `[servers]` | Installs Consul 2.0.1 in server mode; enables Cloud Auto-Join using the `AutoJoinRole=server` EC2 tag; writes `/etc/consul.d/consul.hcl`; starts service; waits for port 8500 |
+| 2 | `consul_servers` | `[servers]` | Installs Consul 2.0.1 in server mode; enables Cloud Auto-Join using the `AutoJoinRole=server` EC2 tag; generates self-signed TLS certificates (TLS enabled by default); writes `/etc/consul.d/consul.hcl`; starts service; waits for the loopback HTTP port 8500 |
 | 3 | `consul_clients` | `[clients]` | Installs Consul 2.0.1 in client mode; joins the server cluster through Cloud Auto-Join |
 | 4 | `consul_acl_bootstrap` | `servers[0]` | Bootstraps Consul ACL; saves management token to `ansible/tokens/consul-bootstrap-*.txt` |
 | 5 | `consul_dns_token` | `servers[0]` + `[clients]` | Creates `dns-access` ACL policy; creates a shared DNS token and one per-node node-identity agent token per client; applies the DNS token to every Consul agent using `consul acl set-agent-token dns`; re-runs consul role on each client with `consul_acl_enabled: true` to write `acl { tokens { agent dns } }` into `consul.hcl`; saves `ansible/tokens/consul-dns-secret-id.txt` and `ansible/tokens/consul-client-agent-<hostname>-secret-id.txt` |
@@ -439,7 +441,7 @@ Sub-playbooks executed in order:
 | Step | Sub-playbook | Hosts | What it does |
 |------|-------------|-------|--------------|
 | 1 | `common_setup` | `all` | Configures passwordless sudo; tests Ansible connectivity (ping) |
-| 2 | `nomad_servers` | `[servers]` | Installs Nomad 2.0.4 in server mode; uses static `server_join.retry_join` with private IPs from the `[servers]` group; writes `/etc/nomad.d/nomad.hcl`; starts service; waits for port 4646 |
+| 2 | `nomad_servers` | `[servers]` | Installs Nomad 2.0.4 in server mode; uses static `server_join.retry_join` with private IPs from the `[servers]` group; generates self-signed TLS certificates (TLS enabled by default); writes `/etc/nomad.d/nomad.hcl`; starts service; waits for HTTPS port 4646 |
 | 3 | `nomad_clients` | `[clients]` | Installs Nomad 2.0.4 in client mode; installs CNI plugins (Ubuntu) and Docker CE; uses static `server_join.retry_join` |
 | 4 | `nomad_acl_bootstrap` | `servers[0]` | Bootstraps Nomad ACL; saves management token to `ansible/tokens/nomad-bootstrap-*.txt` |
 | 5 | `cluster_summary` | `localhost` | Prints Nomad bootstrap token, `export NOMAD_ADDR` and `export NOMAD_TOKEN` commands, and Nomad UI URL |
@@ -515,7 +517,7 @@ Sub-playbooks executed in order:
 | Step | Sub-playbook | Hosts | What it does |
 |------|-------------|-------|--------------|
 | 1–11 | Same as Option C | — | Refer to Option C table |
-| 12 | `consul_nomad_workload_identity` | `servers[0]` + `[servers]` | Creates Consul ACL policy `nomad-tasks-policy`; creates JWT auth method `nomad-workloads` (JWKS URL points to first Nomad server port 4646); creates binding rule mapping `nomad_service` JWT claims to Consul service identities; creates role `nomad-tasks-default`; creates binding rule mapping task workload JWTs to `nomad-tasks-default`; reconfigures Nomad servers with `service_identity` and `task_identity` blocks in the `consul {}` stanza; restarts Nomad servers |
+| 12 | `consul_nomad_workload_identity` | `servers[0]` + `[servers]` | Creates Consul ACL policy `nomad-tasks-policy`; creates JWT auth method `nomad-workloads` (JWKS URL points to the first Nomad server's HTTPS port 4646, trusted via the shared self-signed CA); creates binding rule mapping `nomad_service` JWT claims to Consul service identities; creates role `nomad-tasks-default`; creates binding rule mapping task workload JWTs to `nomad-tasks-default`; reconfigures Nomad servers with `service_identity` and `task_identity` blocks in the `consul {}` stanza; restarts Nomad servers |
 | 13 | `cluster_summary` | `localhost` | Prints all tokens, all `export` commands, and both UI URLs |
 
 **Status summary includes:** same as Option C.
@@ -551,13 +553,15 @@ works correctly for all four options.
 ### Manual export (without the helper script)
 
 ```bash
-export CONSUL_HTTP_ADDR=http://<server-ip>:8500
+export CONSUL_HTTP_ADDR=https://<server-ip>:8443
 export CONSUL_HTTP_TOKEN=$(cat ansible/tokens/consul-bootstrap-secret-id.txt)
-export NOMAD_ADDR=http://<server-ip>:4646
+export CONSUL_CACERT=ansible/.tls/ca.pem
+export NOMAD_ADDR=https://<server-ip>:4646
 export NOMAD_TOKEN=$(cat ansible/tokens/nomad-bootstrap-secret-id.txt)
+export NOMAD_CACERT=ansible/.tls/ca.pem
 ```
 
-Substitute `<server-ip>` with a server's public IP address from `terraform output` or `inventory.ini`.
+Substitute `<server-ip>` with a server's public IP address from `terraform output` or `inventory.ini`. TLS is enabled by default, so both APIs require HTTPS and the self-signed CA certificate (`ansible/.tls/ca.pem`) to verify.
 
 ---
 
@@ -618,8 +622,10 @@ nomad node status
 
 | Service | URL |
 |---------|-----|
-| Consul UI | `http://<server-public-ip>:8500/ui` |
-| Nomad UI | `http://<server-public-ip>:4646` |
+| Consul UI | `https://<server-public-ip>:8443/ui` |
+| Nomad UI | `https://<server-public-ip>:4646` |
+
+TLS is enabled by default, so expect a self-signed certificate warning in your browser — accept it to continue.
 
 Use the bootstrap token values to log into the UIs. Find the values in these files:
 
@@ -679,8 +685,11 @@ Use the Consul API to find the Countdash public address. Before running the foll
 - [jq](https://jqlang.org/)
 
 ```bash
-curl --variable '%CONSUL_HTTP_ADDR' --variable '%CONSUL_HTTP_TOKEN' --expand-url "{{CONSUL_HTTP_ADDR}}/v1/catalog/service/countdash-web?passing" --expand-header "X-Consul-Token: {{CONSUL_HTTP_TOKEN}}"  | jq -r '.[] | "\(.ServiceAddress):\(.ServicePort)"'
+curl --cacert "$CONSUL_CACERT" --variable '%CONSUL_HTTP_ADDR' --variable '%CONSUL_HTTP_TOKEN' --expand-url "{{CONSUL_HTTP_ADDR}}/v1/catalog/service/countdash-web?passing" --expand-header "X-Consul-Token: {{CONSUL_HTTP_TOKEN}}"  | jq -r '.[] | "\(.ServiceAddress):\(.ServicePort)"'
 ```
+
+TLS is enabled by default, so `curl` needs `--cacert` pointed at the self-signed CA
+(`$CONSUL_CACERT`, exported by `set-cluster-env.sh`) to verify the Consul HTTPS API.
 
 The result displays the public URL.
 
@@ -928,6 +937,8 @@ Roles applied by `consul_servers` (in order):
 | `common` | Sets hostname, installs base packages |
 | `geerlingguy.docker` | Installs Docker CE; adds `ubuntu` user to the docker group |
 | `helper` | Installs apt packages: jq, net-tools, unzip, nano, curl |
+| `tls` | Generates self-signed TLS certificates on the control machine (only when `consul_tls_enabled: true`) |
+| `helper` | Copies TLS certs to `{{ consul_tls_dir }}` owned by the `consul` user (only when `consul_tls_enabled: true`) |
 | `consul` | Installs Consul 2.0.1; writes `/etc/consul.d/consul.hcl`; creates systemd unit; starts service |
 
 Key configuration values applied by `consul_servers`:
@@ -939,9 +950,9 @@ Key configuration values applied by `consul_servers`:
 | Datacenter | `dc1` |
 | Cloud Auto-Join tag | `AutoJoinRole=server` |
 | ACLs | Enabled |
-| TLS | Disabled (set `consul_tls_enabled: true` to enable) |
+| TLS | Enabled by default (set `consul_tls_enabled: false` to disable). Plain HTTP is kept on loopback (`127.0.0.1:8500`); HTTPS is exposed on `0.0.0.0:8443` |
 
-Post-task: waits for Consul HTTP API on `127.0.0.1:8500`, then prints the UI URL.
+Post-task: waits for Consul HTTP API on `127.0.0.1:8500`, then prints the HTTPS UI URL.
 
 Roles applied by `consul_clients` (in order):
 
@@ -950,6 +961,8 @@ Roles applied by `consul_clients` (in order):
 | `common` | Sets hostname, installs base packages |
 | `geerlingguy.docker` | Installs Docker CE; adds `ubuntu` user to the docker group |
 | `helper` | Installs apt packages: jq, net-tools, unzip, nano, curl |
+| `tls` | Generates self-signed TLS certificates on the control machine (only when `consul_tls_enabled: true`) |
+| `helper` | Copies TLS certs to `{{ consul_tls_dir }}` owned by the `consul` user (only when `consul_tls_enabled: true`) |
 | `consul` | Installs Consul 2.0.1 in client mode; Cloud Auto-Join finds servers using the `AutoJoinRole=server` tag |
 
 Key configuration values applied by `consul_clients`:
@@ -959,7 +972,7 @@ Key configuration values applied by `consul_clients`:
 | Mode | Client |
 | Cloud Auto-Join tag | `AutoJoinRole=server` |
 | ACLs | Disabled on clients by default |
-| TLS | Disabled |
+| TLS | Enabled by default (set `consul_tls_enabled: false` to disable) |
 
 ### Nomad layer
 
@@ -987,10 +1000,10 @@ Key configuration values applied by `nomad_servers`:
 | `server_join.retry_join` | Static list of server private IPs from `[servers]` inventory group |
 | Cloud Auto-Join | Disabled (static join used instead) |
 | ACLs | Enabled |
-| TLS | Disabled (set `nomad_tls_enabled: true` to enable) |
+| TLS | Enabled by default (set `nomad_tls_enabled: false` to disable). Nomad has no loopback exception — HTTP and RPC are TLS-only |
 | Log level | DEBUG |
 
-Post-task: waits for Nomad HTTP API on port 4646.
+Post-task: waits for Nomad HTTPS API on port 4646.
 
 Roles applied by `nomad_clients` (in order):
 
@@ -1010,10 +1023,10 @@ Key configuration values applied by `nomad_clients`:
 | `server_join.retry_join` | Static list of server private IPs from `[servers]` inventory group |
 | Cloud Auto-Join | Disabled |
 | ACLs | Enabled |
-| TLS | Disabled |
+| TLS | Enabled by default (set `nomad_tls_enabled: false` to disable) |
 | Log level | DEBUG |
 
-Post-task: waits for Nomad HTTP API on port 4646.
+Post-task: waits for Nomad HTTPS API on port 4646.
 
 ---
 

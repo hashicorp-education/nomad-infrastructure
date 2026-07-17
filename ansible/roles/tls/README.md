@@ -46,20 +46,19 @@ ansible/.tls/
 
 ## Usage
 
-This role is used in the role list of both server and client playbooks to generate certificates before other roles run. The `when: nomad_tls_enabled` condition ensures the role is skipped when TLS is disabled.
+This role is used in the role list of both server and client playbooks to generate certificates before other roles run. The `when: nomad_tls_enabled` (or `consul_tls_enabled`) condition ensures the role is skipped when TLS is disabled. TLS is enabled by default for both products.
 
-**Server playbook** (`playbooks/nomad_servers.yaml`):
+**Nomad server playbook** (`playbooks/nomad_servers.yaml`):
 ```yaml
 - role: tls
   when: nomad_tls_enabled
-- role: tls
   tls_self_signed_generate:
   - agent-name: "{{ inventory_hostname }}"
     ip: "{{ ansible_facts['default_ipv4']['address'] }}"
-    dns: "client.global.nomad"
+    dns: "server.global.nomad"
 ```
 
-**Cert distribution** (separate `helper` role call, also in `nomad_servers.yaml`):
+**Nomad cert distribution** (separate `helper` role call, also in `nomad_servers.yaml`):
 ```yaml
 - role: helper
   when: nomad_tls_enabled | bool
@@ -73,6 +72,36 @@ This role is used in the role list of both server and client playbooks to genera
       mode: "0644"
     - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}-key.pem"
       dst: "/etc/nomad.d/.tls/nomad.key"
+      mode: "0600"
+```
+
+**Consul server playbook** (`playbooks/consul_servers.yaml`) — same CA, distinct DNS SAN and destination owned by the `consul` user:
+```yaml
+- role: tls
+  when: consul_tls_enabled
+  tls_self_signed_generate:
+  - agent-name: "{{ inventory_hostname }}"
+    ip: "{{ ansible_facts['default_ipv4']['address'] }}"
+    dns: "server.{{ consul_datacenter }}.{{ consul_domain }}"
+
+- role: helper
+  when: consul_tls_enabled | bool
+  vars:
+    helper_file_copy_local:
+    - src: "{{ inventory_dir }}/.tls/ca.pem"
+      dst: "{{ consul_tls_dir }}/ca.pem"
+      owner: "{{ consul_user }}"
+      group: "{{ consul_group }}"
+      mode: "0644"
+    - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}.pem"
+      dst: "{{ consul_tls_dir }}/consul.pem"
+      owner: "{{ consul_user }}"
+      group: "{{ consul_group }}"
+      mode: "0644"
+    - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}-key.pem"
+      dst: "{{ consul_tls_dir }}/consul-key.pem"
+      owner: "{{ consul_user }}"
+      group: "{{ consul_group }}"
       mode: "0600"
 ```
 
@@ -96,9 +125,9 @@ This role is used in the role list of both server and client playbooks to genera
 
 ## Certificate distribution
 
-After generation, certificates are distributed by the **helper** role (see `playbooks/nomad_servers.yaml` and `playbooks/nomad_clients.yaml`).
+After generation, certificates are distributed by the **helper** role (see `playbooks/nomad_servers.yaml`, `playbooks/nomad_clients.yaml`, `playbooks/consul_servers.yaml`, and `playbooks/consul_clients.yaml`).
 
-Certificates are written to `/etc/nomad.d/.tls/` on each node.
+Certificates are written to `/etc/nomad.d/.tls/` (owned by the `nomad` user) and `{{ consul_tls_dir }}` (default `/etc/consul.d/tls/`, owned by the `consul` user) on each node. Consul and Nomad certificates on the same node share the same CA, generated once per cluster.
 
 ## Dependencies
 

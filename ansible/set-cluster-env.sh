@@ -49,11 +49,16 @@ echo ""
 
 # ── Consul ────────────────────────────────────────────────────────────────────
 _CONSUL_TOKEN_FILE="${_SCRIPT_DIR}/tokens/consul-bootstrap-secret-id.txt"
+_TLS_CA_FILE="${_SCRIPT_DIR}/.tls/ca.pem"
 if [[ -f "${_CONSUL_TOKEN_FILE}" ]]; then
-    export CONSUL_HTTP_ADDR="http://${_SERVER_IP}:8500"
+    export CONSUL_HTTP_ADDR="https://${_SERVER_IP}:8443"
     export CONSUL_HTTP_TOKEN="$(cat "${_CONSUL_TOKEN_FILE}")"
     echo "  CONSUL_HTTP_ADDR=${CONSUL_HTTP_ADDR}"
     echo "  CONSUL_HTTP_TOKEN=(set from consul-bootstrap-secret-id.txt)"
+    if [[ -f "${_TLS_CA_FILE}" ]]; then
+        export CONSUL_CACERT="${_TLS_CA_FILE}"
+        echo "  CONSUL_CACERT=${CONSUL_CACERT}"
+    fi
 else
     echo "  CONSUL_HTTP_ADDR / CONSUL_HTTP_TOKEN: skipped"
     echo "    (consul-bootstrap-secret-id.txt not found — run consul_acl_bootstrap.yaml)"
@@ -62,10 +67,14 @@ fi
 # ── Nomad ─────────────────────────────────────────────────────────────────────
 _NOMAD_TOKEN_FILE="${_SCRIPT_DIR}/tokens/nomad-bootstrap-secret-id.txt"
 if [[ -f "${_NOMAD_TOKEN_FILE}" ]]; then
-    export NOMAD_ADDR="http://${_SERVER_IP}:4646"
+    export NOMAD_ADDR="https://${_SERVER_IP}:4646"
     export NOMAD_TOKEN="$(cat "${_NOMAD_TOKEN_FILE}")"
     echo "  NOMAD_ADDR=${NOMAD_ADDR}"
     echo "  NOMAD_TOKEN=(set from nomad-bootstrap-secret-id.txt)"
+    if [[ -f "${_TLS_CA_FILE}" ]]; then
+        export NOMAD_CACERT="${_TLS_CA_FILE}"
+        echo "  NOMAD_CACERT=${NOMAD_CACERT}"
+    fi
 else
     echo "  NOMAD_ADDR / NOMAD_TOKEN: skipped"
     echo "    (nomad-bootstrap-secret-id.txt not found — run nomad_acl_bootstrap.yaml)"
@@ -73,4 +82,4 @@ fi
 
 echo ""
 
-unset _SCRIPT_DIR _INVENTORY _SERVER_IP _CONSUL_TOKEN_FILE _NOMAD_TOKEN_FILE
+unset _SCRIPT_DIR _INVENTORY _SERVER_IP _CONSUL_TOKEN_FILE _NOMAD_TOKEN_FILE _TLS_CA_FILE

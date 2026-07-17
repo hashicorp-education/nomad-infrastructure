@@ -70,10 +70,17 @@ nomad_consul_auth_method_description: "JWT auth method for Nomad service and tas
 
 # JWKS URL that Consul servers use to validate Nomad workload identity JWTs.
 # Must be reachable by all Consul servers.  In production, point this to a
-# load balancer in front of multiple Nomad servers.  With Nomad mTLS enabled,
-# tls.verify_https_client must be false in the Nomad agent configuration.
+# load balancer in front of multiple Nomad servers.  Defaults to https:// since
+# Nomad's HTTP API is TLS-only when nomad_tls_enabled: true (the default); set
+# this to an http:// URL if Nomad TLS is disabled.
 nomad_consul_jwks_url: >-
-  http://{{ hostvars[groups['servers'][0]]['ansible_facts']['default_ipv4']['address'] }}:4646
+  https://{{ hostvars[groups['servers'][0]]['ansible_facts']['default_ipv4']['address'] }}:4646
+
+# PEM-encoded CA certificate Consul uses to verify the TLS connection to
+# nomad_consul_jwks_url. Required when nomad_consul_jwks_url uses https:// with
+# a self-signed certificate (the default). Leave empty to use system CAs, or
+# when nomad_consul_jwks_url uses http://.
+nomad_consul_jwks_ca_cert: ""
 
 # --- Consul ACL binding rules ---
 nomad_consul_service_binding_rule_description: "Nomad workload identities for Consul service registration"

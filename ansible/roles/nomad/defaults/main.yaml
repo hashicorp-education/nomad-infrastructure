@@ -47,7 +47,7 @@ nomad_cloud_auto_join_tag_key: "AutoJoinRole"
 nomad_cloud_auto_join_tag_value: "server"
 
 # TLS configuration
-nomad_tls_enabled: false
+nomad_tls_enabled: true
 
 # Consul integration configuration
 #

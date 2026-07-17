@@ -40,13 +40,13 @@ output "client_private_ips" {
 }
 
 output "consul_ui_urls" {
-  description = "URLs to access Consul UI on servers"
-  value       = [for ip in aws_instance.servers[*].public_ip : "http://${ip}:8500"]
+  description = "URLs to access Consul UI on servers (TLS enabled by default)"
+  value       = [for ip in aws_instance.servers[*].public_ip : "https://${ip}:8443"]
 }
 
 output "nomad_ui_urls" {
-  description = "URLs to access Nomad UI on servers"
-  value       = [for ip in aws_instance.servers[*].public_ip : "http://${ip}:4646"]
+  description = "URLs to access Nomad UI on servers (TLS enabled by default)"
+  value       = [for ip in aws_instance.servers[*].public_ip : "https://${ip}:4646"]
 }
 
 output "ssh_commands" {

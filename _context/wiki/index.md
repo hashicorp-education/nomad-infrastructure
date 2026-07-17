@@ -10,6 +10,7 @@ scan the headings and follow only what is relevant to the current task.
 - [DEPLOY_CLUSTER_GUIDE.md](../../DEPLOY_CLUSTER_GUIDE.md) — full deployment walkthrough including Terraform + Ansible steps
 - [ansible/PLAYBOOKS-README.md](../../ansible/PLAYBOOKS-README.md) — per-playbook reference including variables, tags, and rendered-config inspection
 - [ansible/README.md](../../ansible/README.md) — Ansible role/variable overview and troubleshooting guide
+- [tls-enabled-by-default-plan.md](tls-enabled-by-default-plan.md) — Plan and reasoning for enabling TLS by default in both Consul and Nomad across all deploy scenarios: hybrid Consul HTTP/HTTPS model, Nomad TLS-only (no loopback exception), shared self-signed CA, and the JWKS/CA-trust fix required for Consul-Nomad workload identity integration.
 
 ## ACL architecture
 

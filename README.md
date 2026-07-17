@@ -39,7 +39,7 @@ This project provisions a production-ready cluster of **three servers and two cl
 - **Consul Cloud Auto-Join**: Consul discovers peers automatically using the `AutoJoinRole` EC2 tag — no hardcoded IPs
 - **Nomad static join**: Nomad uses private IPs from the Ansible inventory for `server_join.retry_join`
 - **IAM-powered discovery**: EC2 instance profiles grant least-privilege `ec2:DescribeInstances` access for Consul Cloud Auto-Join
-- **TLS-ready**: Certificate generation and distribution are wired in. Enable them per playbook with `nomad_tls_enabled: true` or `consul_tls_enabled: true`.
+- **TLS by default**: Consul and Nomad both enable TLS by default (`consul_tls_enabled: true`, `nomad_tls_enabled: true`). Certificates are self-signed by the `tls` role and distributed automatically. Consul serves plain HTTP on `127.0.0.1:8500` (loopback only) alongside HTTPS on `0.0.0.0:8443`; Nomad's HTTP and RPC layers are TLS-only.
 - **ACL-ready**: Consul ACLs are enabled on servers by default. Nomad ACLs are enabled on all nodes by default. Each has a dedicated bootstrap playbook.
 - **Consul service discovery**: Nomad integrates with Consul using Workload Identities (JWT-based, Nomad 1.7+) with no shared static tokens. Nomad services and tasks obtain scoped Consul ACL tokens automatically.
 - **dnsmasq DNS forwarding**: Every node runs dnsmasq to forward `.global` DNS queries to the local Consul agent, enabling service address resolution for all processes

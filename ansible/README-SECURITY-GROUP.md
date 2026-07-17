@@ -2,6 +2,8 @@
 
 Two approaches are available for adding ingress rules to the AWS security group created by Terraform for the Nomad infrastructure.
 
+> Ports 22 (SSH), 8500 (Consul HTTP, loopback only), 8443 (Consul HTTPS), and 4646 (Nomad HTTP/HTTPS) are already opened by default in [`terraform/aws/network.tf`](../terraform/aws/network.tf) — TLS is enabled by default for both Consul and Nomad. Use the approaches below only for *additional* ports, such as application-specific job ports.
+
 ## Choosing an approach
 
 | | Terraform (`extra_ingress_ports`) | Ansible (`update-security-group.yaml`) |

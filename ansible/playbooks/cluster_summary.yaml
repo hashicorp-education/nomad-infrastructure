@@ -86,15 +86,17 @@
   - name: Display Consul environment variables
     ansible.builtin.debug:
       msg:
-      - "  export CONSUL_HTTP_ADDR=http://{{ hostvars[groups['servers'][0]]['ansible_host'] }}:8500"
+      - "  export CONSUL_HTTP_ADDR=https://{{ hostvars[groups['servers'][0]]['ansible_host'] }}:8443"
       - "  export CONSUL_HTTP_TOKEN={{ lookup('file', hostvars[groups['servers'][0]]['inventory_dir'] + '/tokens/consul-bootstrap-secret-id.txt', errors='ignore') or '(not found)' }}"
+      - "  export CONSUL_CACERT={{ hostvars[groups['servers'][0]]['inventory_dir'] }}/.tls/ca.pem"
     when: summary_show_consul_env | default(false) | bool
 
   - name: Display Nomad environment variables
     ansible.builtin.debug:
       msg:
-      - "  export NOMAD_ADDR=http://{{ hostvars[groups['servers'][0]]['ansible_host'] }}:4646"
+      - "  export NOMAD_ADDR=https://{{ hostvars[groups['servers'][0]]['ansible_host'] }}:4646"
       - "  export NOMAD_TOKEN={{ lookup('file', hostvars[groups['servers'][0]]['inventory_dir'] + '/tokens/nomad-bootstrap-secret-id.txt', errors='ignore') or '(not found)' }}"
+      - "  export NOMAD_CACERT={{ hostvars[groups['servers'][0]]['inventory_dir'] }}/.tls/ca.pem"
     when: summary_show_nomad_env | default(false) | bool
 
   - name: Display helper script instructions
@@ -132,15 +134,15 @@
     ansible.builtin.debug:
       msg:
       - ""
-      - "Access Nomad UI at:"
-      - "{% for host in groups['servers'] %}  http://{{ hostvars[host]['ansible_host'] }}:4646{% endfor %}"
+      - "Access Nomad UI at (TLS enabled by default — expect a self-signed cert warning):"
+      - "{% for host in groups['servers'] %}  https://{{ hostvars[host]['ansible_host'] }}:4646{% endfor %}"
     when: summary_show_nomad_ui | default(false) | bool
 
   - name: Display Consul UI access
     ansible.builtin.debug:
       msg:
       - ""
-      - "Access Consul UI at:"
-      - "{% for host in groups['servers'] %}  http://{{ hostvars[host]['ansible_host'] }}:8500/ui{% endfor %}"
+      - "Access Consul UI at (TLS enabled by default — expect a self-signed cert warning):"
+      - "{% for host in groups['servers'] %}  https://{{ hostvars[host]['ansible_host'] }}:8443/ui{% endfor %}"
     when: summary_show_consul_ui | default(false) | bool
 

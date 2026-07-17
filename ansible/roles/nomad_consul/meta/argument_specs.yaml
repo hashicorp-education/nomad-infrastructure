@@ -77,8 +77,19 @@ argument_specs:
         description: >-
           URL of the Nomad JWKS endpoint used by Consul to validate workload
           identity JWTs. Must be reachable by all Consul servers. Defaults to
-          the first Nomad server's HTTP address. In production, use a load
-          balancer or DNS entry covering multiple Nomad agents.
+          the first Nomad server's HTTPS address (Nomad's HTTP API is TLS-only
+          when nomad_tls_enabled is true, the default). In production, use a
+          load balancer or DNS entry covering multiple Nomad agents.
+
+      nomad_consul_jwks_ca_cert:
+        type: str
+        required: false
+        default: ""
+        description: >-
+          PEM-encoded CA certificate Consul uses to verify the TLS connection
+          to nomad_consul_jwks_url. Required when nomad_consul_jwks_url uses
+          https:// with a self-signed certificate (the default). Leave empty
+          to use system CAs, or when nomad_consul_jwks_url uses http://.
 
       nomad_consul_tasks_role_name:
         type: str

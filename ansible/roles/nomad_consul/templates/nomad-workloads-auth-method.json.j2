@@ -2,6 +2,9 @@
 {# SPDX-License-Identifier: MPL-2.0 #}
 {
   "JWKSURL": "{{ nomad_consul_jwks_url }}",
+{% if nomad_consul_jwks_ca_cert %}
+  "JWKSCACert": {{ nomad_consul_jwks_ca_cert | to_json }},
+{% endif %}
   "JWTSupportedAlgs": ["RS256"],
   "BoundAudiences": ["consul.io"],
   "ClaimMappings": {
