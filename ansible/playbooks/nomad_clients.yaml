@@ -60,12 +60,15 @@
       - src: "{{ inventory_dir }}/.tls/ca.pem"
         dst: "/etc/nomad.d/.tls/ca.crt"
         mode: "0644"
+        notify: "Restart nomad"
       - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}.pem"
         dst: "/etc/nomad.d/.tls/nomad.crt"
         mode: "0644"
+        notify: "Restart nomad"
       - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}-key.pem"
         dst: "/etc/nomad.d/.tls/nomad.key"
         mode: "0600"
+        notify: "Restart nomad"
 
   - role: nomad
 

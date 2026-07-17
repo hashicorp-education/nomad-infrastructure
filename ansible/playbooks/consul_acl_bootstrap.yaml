@@ -38,6 +38,24 @@
       msg: "Consul is not running on port 8500. Deploy the cluster with consul_servers.yaml first."
     when: consul_running.failed
 
+  # The port opening does not mean a Raft leader has been elected yet — on a
+  # fresh cluster, leader election (and cloud auto-join discovery) can take a
+  # few seconds after the Consul HTTP API becomes reachable. Bootstrapping
+  # before a leader exists fails with "Unexpected response code: 500
+  # (No cluster leader)", so poll the leader status endpoint until it reports
+  # one before attempting the ACL bootstrap.
+  - name: Wait for Consul cluster leader election
+    ansible.builtin.uri:
+      url: "{{ consul_http_addr }}/v1/status/leader"
+      method: GET
+      return_content: true
+      status_code: 200
+    register: consul_leader_check
+    until: consul_leader_check.content | default('""') | trim != '""'
+    retries: 30
+    delay: 2
+
+
   - name: Attempt to bootstrap Consul ACL system
     ansible.builtin.command: "{{ consul_bin_path }} acl bootstrap"
     environment:

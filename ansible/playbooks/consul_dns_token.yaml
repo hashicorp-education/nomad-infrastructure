@@ -314,7 +314,8 @@
     consul_cloud_auto_join_tag_key: "AutoJoinRole"
     consul_cloud_auto_join_tag_value: "server"
     consul_acl_enabled: true
-    consul_tls_enabled: false
+    consul_tls_enabled: true
+    consul_port_https: 8443
     consul_connect_enabled: false
 
   pre_tasks:

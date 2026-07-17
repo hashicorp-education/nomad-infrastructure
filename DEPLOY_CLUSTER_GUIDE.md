@@ -625,7 +625,68 @@ nomad node status
 | Consul UI | `https://<server-public-ip>:8443/ui` |
 | Nomad UI | `https://<server-public-ip>:4646` |
 
-TLS is enabled by default, so expect a self-signed certificate warning in your browser — accept it to continue.
+TLS is enabled by default. The `ansible/.tls/ca.pem` CA that signs the Consul and
+Nomad certificates is self-signed and generated locally by the `tls` role — it is
+not issued by a certificate authority trusted by your OS or browser. Every browser
+therefore shows a certificate warning, but the wording and severity differ:
+
+| Browser | Behavior | Why |
+|---------|----------|-----|
+| Firefox | Shows "Warning: Potential Security Risk Ahead". Click **Advanced** > **Accept the Risk and Continue** to proceed. | Firefox keeps its own certificate trust store (separate from the OS) and always offers a per-site exception for an untrusted issuer, so it reliably lets you continue. |
+| Chrome / Brave (Chromium-based) | Shows "Your connection is not private". Click **Advanced** > **Proceed** to continue. | Chromium browsers validate against the OS trust store, so an unrecognized self-signed CA still triggers a warning, but it is click-through like Firefox's. |
+| Safari | Shows "This Connection is Not Private". Click **visit this website** (may require confirming again) to continue. | Safari validates against the macOS Keychain and shows the standard untrusted-CA warning with an override. |
+
+> **Note**: Versions of this cluster's certificates generated before the `tls`
+> role set a Common Name (`common_name`) and `keyUsage`/`extendedKeyUsage`
+> extensions on node certificates had an empty certificate Subject combined
+> with a non-critical Subject Alternative Name extension — a violation of
+> [RFC 5280 §4.2.1.6](https://www.rfc-editor.org/rfc/rfc5280#section-4.2.1.6).
+> Chrome/Brave and Safari enforce that rule strictly and rejected those
+> certificates outright (`ERR_SSL_PROTOCOL_ERROR` / "sent scrambled credentials",
+> or a non-bypassable Safari block) instead of showing the normal click-through
+> warning. If you still see this behavior, re-run the deploy playbook (or the
+> `tls` role plus the cert-distribution `helper` role step) to regenerate
+> RFC 5280-compliant certificates — the CSR content change is detected
+> automatically and the certificates are re-signed in place.
+
+**Recommendation**: use Firefox to access the Consul and Nomad UIs during
+testing and development — it consistently allows you to accept the self-signed
+CA and continue.
+
+If you want to use Chrome, Brave, Safari, or another Chromium/OS-trust-store
+browser without warnings, import `ansible/.tls/ca.pem` into your OS or browser
+trust store as a trusted root CA:
+
+**macOS**
+
+```bash
+sudo security add-trusted-cert -d -r trustRoot \
+  -k /Library/Keychains/System.keychain ansible/.tls/ca.pem
+```
+
+**Linux (Debian/Ubuntu)**
+
+```bash
+sudo cp ansible/.tls/ca.pem /usr/local/share/ca-certificates/nomad-consul-ca.crt
+sudo update-ca-certificates
+```
+
+**Linux (RHEL/Fedora)**
+
+```bash
+sudo cp ansible/.tls/ca.pem /etc/pki/ca-trust/source/anchors/nomad-consul-ca.crt
+sudo update-ca-trust extract
+```
+
+**Windows (PowerShell, run as Administrator)**
+
+```powershell
+Import-Certificate -FilePath "ansible\.tls\ca.pem" -CertStoreLocation Cert:\LocalMachine\Root
+```
+
+Only do this on a machine you control, and remove the trusted CA entry when
+you tear down the cluster, since the CA's private key remains on the Ansible
+control host.
 
 Use the bootstrap token values to log into the UIs. Find the values in these files:
 

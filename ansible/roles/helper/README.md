@@ -21,7 +21,7 @@ makes playbooks cleaner and more maintainable by centralizing common patterns.
 |----------|------|---------|-------------|
 | `helper_apt_packages` | list | `[]` | APT packages to install (Debian/Ubuntu) |
 | `helper_yum_packages` | list | `[]` | YUM packages to install (RHEL/CentOS) |
-| `helper_file_copy_local` | list | `[]` | Files to copy from local to remote |
+| `helper_file_copy_local` | list | `[]` | Files to copy from local to remote. Each item supports an optional `notify: "<handler name>"` (e.g. `"Restart consul"`, `"Restart nomad"`) so a changed file (such as a regenerated TLS certificate) triggers a service restart to pick it up — without it, a running service keeps using the file it loaded at startup even after the on-disk copy changes. |
 | `helper_file_write_template` | list | `[]` | Templates to process and write |
 | `helper_file_write_content` | list | `[]` | Content to write directly to files |
 | `helper_file_write_content_local` | list | `[]` | Content to write to localhost |

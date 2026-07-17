@@ -15,12 +15,20 @@
     - name: Create CSR for {{ item['agent-name'] }}
       community.crypto.openssl_csr_pipe:
         privatekey_path: "{{ tls_path }}/{{ item['agent-name'] }}-key.pem"
+        common_name: "{{ item['dns'] }}"
         subject_alt_name:
           - "IP:127.0.0.1"
           - "IP:{{ item['ip'] }}"
           - "IP:{{ ansible_host }}"
           - "DNS:localhost"
           - "DNS:{{ item['dns'] }}"
+        key_usage:
+          - digitalSignature
+          - keyEncipherment
+        key_usage_critical: true
+        extended_key_usage:
+          - serverAuth
+          - clientAuth
       register: tls_csr
 
     - name: Check if certificate exists for {{ item['agent-name'] }}

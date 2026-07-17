@@ -41,6 +41,27 @@
     consul_port_https: 8443
     consul_connect_enabled: false
 
+  pre_tasks:
+  # The consul role normally creates this user/group, but the TLS cert helper
+  # role below (which chowns files to consul_user/consul_group) runs before
+  # the consul role. Create the system account early so chown succeeds.
+  - name: Create consul system group
+    ansible.builtin.group:
+      name: "{{ consul_group }}"
+      system: true
+      state: present
+    when: consul_manage_group | bool
+
+  - name: Create consul system user
+    ansible.builtin.user:
+      name: "{{ consul_user }}"
+      group: "{{ consul_group }}"
+      system: true
+      shell: /usr/sbin/nologin
+      create_home: false
+      state: present
+    when: consul_manage_user | bool
+
   roles:
   - role: common
     vars:
@@ -78,16 +99,19 @@
         owner: "{{ consul_user }}"
         group: "{{ consul_group }}"
         mode: "0644"
+        notify: "Restart consul"
       - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}.pem"
         dst: "{{ consul_tls_dir }}/consul.pem"
         owner: "{{ consul_user }}"
         group: "{{ consul_group }}"
         mode: "0644"
+        notify: "Restart consul"
       - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}-key.pem"
         dst: "{{ consul_tls_dir }}/consul-key.pem"
         owner: "{{ consul_user }}"
         group: "{{ consul_group }}"
         mode: "0600"
+        notify: "Restart consul"
 
   - role: consul
 
