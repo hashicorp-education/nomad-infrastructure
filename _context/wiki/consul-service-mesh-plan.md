@@ -1,9 +1,8 @@
 # Plan: Consul service mesh (Option E)
 
-**Status: proposal — not implemented.** This document is a design plan only.
-No playbooks, Terraform, or job specs described here have been created or
-modified. Implementation requires explicit authorization and should proceed
-phase-by-phase (see [Rollout order](#rollout-order)).
+**Status: implemented.** Steps 0–7 of the rollout order are complete and have
+been tested against a live AWS cluster. Documentation (step 8) is in progress.
+See the [Rollout order](#rollout-order) for per-step status.
 
 Decisions locked in for this plan (confirmed with the user):
 
@@ -392,7 +391,10 @@ image tag/version, which is out of scope for this pass.
 5. Deploy `countdash-consul-service-mesh.nomad.hcl`, apply its two
    intentions, verify end-to-end.
 6. Deploy the API Gateway job + listener/http-route/cert config entries,
-   apply gateway intentions, verify browser access via port 8447.
+   apply gateway intentions, verify browser access via port 8447. **Done —
+   verified end-to-end** (5/5 consecutive requests through the gateway to
+   `countdash-web` returned HTTP 200). Four bugs found and fixed along the
+   way, see [api-gateway-envoy-bootstrap-troubleshooting.md](api-gateway-envoy-bootstrap-troubleshooting.md).
 7. Deploy `hashicups-consul-service-mesh.nomad.hcl`, apply its five
    intentions, verify end-to-end through the gateway.
 8. Update `DEPLOY_CLUSTER_GUIDE.md` (Option E section + mermaid diagram) and

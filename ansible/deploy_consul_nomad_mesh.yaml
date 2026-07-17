@@ -1,0 +1,90 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook: deploy_consul_nomad_mesh.yaml
+#
+# Option E — deploys a Consul + Nomad cluster with service mesh enabled.
+# Runs everything Option D runs, then adds the mesh-enabling playbook
+# (consul_nomad_service_mesh.yaml) which:
+#
+#   1. Re-runs the consul role with connect_enabled=true and grpc_tls=8503
+#      on all servers and clients.
+#   2. Re-runs the nomad role with grpc_ca_file/grpc_address on all clients
+#      so Nomad can bootstrap Envoy against the TLS gRPC/xDS listener.
+#   3. Creates the Nomad `ingress` namespace and the Consul ACL binding rule
+#      for the API Gateway workload identity (extends the nomad_consul role).
+#
+# After this playbook completes:
+#   - Apply Consul config entries and run Nomad mesh jobs manually:
+#       cd nomad-jobs/consul-mesh
+#       See README.md for the full deploy order.
+#
+# Usage:
+#   ansible-playbook -i inventory.ini deploy_consul_nomad_mesh.yaml
+#
+# Set environment variables after deployment:
+#   source ./set-cluster-env.sh
+
+# ── Configure all hosts and test connectivity ────────────────────────────────
+
+- name: Import common setup
+  ansible.builtin.import_playbook: playbooks/common_setup.yaml
+
+# ── Deploy Consul ─────────────────────────────────────────────────────────────
+
+- name: Import Consul server playbook
+  ansible.builtin.import_playbook: playbooks/consul_servers.yaml
+
+- name: Import Consul client playbook
+  ansible.builtin.import_playbook: playbooks/consul_clients.yaml
+
+- name: Bootstrap Consul ACL
+  ansible.builtin.import_playbook: playbooks/consul_acl_bootstrap.yaml
+
+- name: Issue Consul client ACL tokens and reconfigure clients with ACL enabled
+  ansible.builtin.import_playbook: playbooks/consul_dns_token.yaml
+
+- name: Configure dnsmasq for Consul DNS forwarding
+  ansible.builtin.import_playbook: playbooks/dnsmasq.yaml
+
+- name: Add deny all policy to Consul anonymous token
+  ansible.builtin.import_playbook: playbooks/consul_acl_deny_anonymous.yaml
+
+# ── Deploy Nomad ──────────────────────────────────────────────────────────────
+
+- name: Import Nomad server playbook
+  ansible.builtin.import_playbook: playbooks/nomad_servers.yaml
+
+- name: Import Nomad client playbook
+  ansible.builtin.import_playbook: playbooks/nomad_clients.yaml
+
+- name: Bootstrap Nomad ACL
+  ansible.builtin.import_playbook: playbooks/nomad_acl_bootstrap.yaml
+
+# ── Consul-Nomad integration ──────────────────────────────────────────────────
+
+# Phase 1: Consul ACL policies and agent tokens
+- name: Configure Consul-Nomad service discovery
+  ansible.builtin.import_playbook: playbooks/consul_nomad_service_discovery.yaml
+
+# Phase 2: JWT auth method and workload identity blocks
+- name: Configure Consul-Nomad workload identity
+  ansible.builtin.import_playbook: playbooks/consul_nomad_workload_identity.yaml
+
+# Phase 3: Consul Connect + Nomad gRPC-TLS + ingress namespace + API Gateway binding rule
+- name: Configure Consul-Nomad service mesh
+  ansible.builtin.import_playbook: playbooks/consul_nomad_service_mesh.yaml
+
+# ── Cluster status summary ────────────────────────────────────────────────────
+
+- name: Import cluster summary
+  ansible.builtin.import_playbook: playbooks/cluster_summary.yaml
+  vars:
+    summary_title: "Consul + Nomad (Service Discovery + Workload Identity + Service Mesh) Configuration Complete!"
+    summary_show_consul_tokens: true
+    summary_show_nomad_tokens: true
+    summary_show_sd_tokens: true
+    summary_show_consul_env: true
+    summary_show_nomad_env: true
+    summary_show_consul_ui: true
+    summary_show_nomad_ui: true

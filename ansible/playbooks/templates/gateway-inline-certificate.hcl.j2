@@ -1,0 +1,4 @@
+Kind        = "inline-certificate"
+Name        = "api-gateway-cert"
+Certificate = "{{ lookup('file', gateway_cert_path) | replace('\n', '\\n') }}"
+PrivateKey  = "{{ lookup('file', gateway_key_path) | replace('\n', '\\n') }}"
