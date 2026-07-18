@@ -65,6 +65,21 @@ flowchart TD
     P4J --> P4K[consul_nomad_service_discovery]
     P4K --> P4L[consul_nomad_workload_identity]
     P4L --> P4Z([cluster_summary])
+
+    UC5 --> P5A[common_setup]
+    P5A --> P5B[consul_servers]
+    P5B --> P5C[consul_clients]
+    P5C --> P5D[consul_acl_bootstrap]
+    P5D --> P5E[consul_dns_token]
+    P5E --> P5F[dnsmasq]
+    P5F --> P5G[consul_acl_deny_anonymous]
+    P5G --> P5H[nomad_servers]
+    P5H --> P5I[nomad_clients]
+    P5I --> P5J[nomad_acl_bootstrap]
+    P5J --> P5K[consul_nomad_service_discovery]
+    P5K --> P5L[consul_nomad_workload_identity]
+    P5L --> P5M[consul_nomad_service_mesh]
+    P5M --> P5Z([cluster_summary])
 ```
 
 ## Deployment workflows
@@ -121,6 +136,20 @@ to the detailed section in this guide.
 6. **[Export environment variables](#post-deployment-set-environment-variables)**
 7. **[Verify the cluster](#post-deployment-verification)**
 8. **[Clean up when done](#cleanup)**
+
+---
+
+### Use case E: Consul + Nomad with service discovery, workload identity, and service mesh
+
+1. **[Install prerequisites](#prerequisites)**
+2. **[Configure AWS credentials](#aws-credentials)**
+3. **[Provision infrastructure](#phase-1-provision-infrastructure-terraform)**
+4. **[Install Ansible Galaxy roles](#phase-2-cluster-configuration-ansible)**
+5. **[Deploy the cluster](#option-e-consul--nomad-with-service-discovery-workload-identity-and-service-mesh----deploy_consul_nomad_meshyaml)**
+6. **[Export environment variables](#post-deployment-set-environment-variables)**
+7. **[Deploy the service mesh apps and API Gateway](nomad-jobs/consul-mesh/README.md)**
+8. **[Verify the cluster](#post-deployment-verification)**
+9. **[Clean up when done](#cleanup)**
 
 ---
 
@@ -537,6 +566,67 @@ To remove what Ansible deployed, run the `teardown.yaml` playbook. Then run `uns
 
 ---
 
+### Option E: Consul + Nomad with service discovery, workload identity, and service mesh — `deploy_consul_nomad_mesh.yaml`
+
+Extends Option D by enabling Consul Connect (service mesh) cluster-wide: Consul
+servers and clients are reconfigured with `connect.enabled = true` and a
+TLS-enabled gRPC port (`grpc_tls = 8503`); Nomad clients are reconfigured with
+`consul.grpc_address` / `consul.grpc_ca_file` so Nomad can bootstrap Envoy
+sidecars against Consul's TLS gRPC/xDS listener; a new Nomad `ingress`
+namespace and a Consul ACL binding rule for the built-in `api-gateway`
+templated policy are created (reusing the `nomad-workloads` JWT auth method
+from Option D — no new auth method).
+
+Set Consul, Nomad, and CNI plugin versions in
+[`ansible/group_vars/all.yaml`](ansible/group_vars/all.yaml) before running:
+
+```bash
+ansible-playbook -i inventory.ini deploy_consul_nomad_mesh.yaml
+```
+
+Sub-playbooks executed in order:
+
+| Step | Sub-playbook | Hosts | What it does |
+|------|-------------|-------|--------------|
+| 1–13 | Same as Option D | — | Refer to Option D table |
+| 14 | `consul_nomad_service_mesh` | `[servers]` + `[clients]` | Re-renders `consul.hcl` on servers and clients with `connect.enabled = true` and `grpc_tls = 8503`; restarts Consul; re-renders `nomad.hcl` on Nomad clients with `consul.grpc_address` / `consul.grpc_ca_file`; restarts Nomad clients; creates the Nomad `ingress` namespace; creates the Consul ACL binding rule mapping the API Gateway's workload identity to the `builtin/api-gateway` templated policy |
+| 15 | `cluster_summary` | `localhost` | Prints all tokens, all `export` commands, and both UI URLs |
+
+**Status summary includes:** same as Option D.
+
+Duration: approximately 15–20 minutes.
+
+Verify Consul Connect is fingerprinted on every Nomad client after deployment:
+
+```bash
+nomad node status -verbose \
+  $(nomad node status -short | grep ready | awk '{print $1}') \
+  | grep consul.connect
+# consul.connect = true   (must appear for every client node)
+```
+
+This playbook only configures the cluster infrastructure for service mesh. It
+does **not** deploy any mesh-enabled application jobs, Consul config entries
+(service-defaults, intentions, api-gateway listener), or the API Gateway
+itself — those are an application-level concern applied separately. Follow
+[nomad-jobs/consul-mesh/README.md](nomad-jobs/consul-mesh/README.md) for the
+full deploy order (service-defaults → intentions → TLS cert → gateway
+listener → http-route → mesh app job → API Gateway job), which deploys:
+
+- [`nomad-jobs/countdash/countdash-consul-service-mesh.nomad.hcl`](nomad-jobs/countdash/countdash-consul-service-mesh.nomad.hcl) and/or
+  [`nomad-jobs/hashicups/hashicups-consul-service-mesh.nomad.hcl`](nomad-jobs/hashicups/hashicups-consul-service-mesh.nomad.hcl) — the two demo apps, mesh-enabled with Envoy sidecars and explicit `upstreams`
+- [`nomad-jobs/consul-mesh/api-gateway.nomad.hcl`](nomad-jobs/consul-mesh/api-gateway.nomad.hcl) — an Envoy-based Consul API Gateway in the `ingress` namespace, terminating HTTPS on port 8447 and routing to whichever demo app's `http-route` is currently applied
+
+If the process encounters issues, refer to the [Troubleshooting section](#troubleshooting) and
+[_context/wiki/api-gateway-envoy-bootstrap-troubleshooting.md](_context/wiki/api-gateway-envoy-bootstrap-troubleshooting.md).
+
+To remove what Ansible deployed, first stop the mesh app and gateway jobs (see
+the Clean up section of [nomad-jobs/consul-mesh/README.md](nomad-jobs/consul-mesh/README.md)),
+then run the `teardown.yaml` playbook. Then run `unset-cluster-env.sh` to
+remove the environment variables from your terminal.
+
+---
+
 ## Post-deployment: set environment variables
 
 After any deployment, source the helper script to export all environment variables automatically:
@@ -548,7 +638,7 @@ source ./set-cluster-env.sh
 
 The script reads the first server IP from `inventory.ini` and token values from
 `ansible/tokens/`. It only exports variables whose token files exist, so it
-works correctly for all four options.
+works correctly for all five options.
 
 ### Manual export (without the helper script)
 

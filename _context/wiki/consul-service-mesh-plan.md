@@ -1,7 +1,7 @@
 # Plan: Consul service mesh (Option E)
 
-**Status: implemented.** Steps 0–7 of the rollout order are complete and have
-been tested against a live AWS cluster. Documentation (step 8) is in progress.
+**Status: implemented.** Steps 0–8 of the rollout order are complete and have
+been tested against a live AWS cluster, including full documentation.
 See the [Rollout order](#rollout-order) for per-step status.
 
 Decisions locked in for this plan (confirmed with the user):
@@ -396,10 +396,33 @@ image tag/version, which is out of scope for this pass.
    `countdash-web` returned HTTP 200). Four bugs found and fixed along the
    way, see [api-gateway-envoy-bootstrap-troubleshooting.md](api-gateway-envoy-bootstrap-troubleshooting.md).
 7. Deploy `hashicups-consul-service-mesh.nomad.hcl`, apply its five
-   intentions, verify end-to-end through the gateway.
+   intentions, verify end-to-end through the gateway. **Done — verified
+   end-to-end.** All 6 groups (db, product-api, payments, public-api,
+   frontend, nginx) deployed healthy on the first attempt with 1 passing
+   instance each (no stale registrations this time). Swapped the gateway's
+   active `http-route` from `countdash` to `hashicups`
+   (`consul config delete -kind http-route -name countdash` +
+   `consul config write http-route-hashicups.hcl`); 5/5 consecutive
+   `curl -sk https://<client-ip>:8447/` requests returned HTTP 200 with the
+   actual HashiCups frontend HTML. Intentions spot-checked:
+   `api-gateway -> nginx` allowed, `nginx -> database` denied.
 8. Update `DEPLOY_CLUSTER_GUIDE.md` (Option E section + mermaid diagram) and
    `nomad-jobs/*/README.md` files — deferred until after step 7 is verified
-   working, to avoid documenting an unverified flow.
+   working, to avoid documenting an unverified flow. **Done** — added
+   Option E to the top-level flowchart, use-case checklist, and a full
+   Option E deployment section (mirroring Options A–D) in
+   [DEPLOY_CLUSTER_GUIDE.md](../../DEPLOY_CLUSTER_GUIDE.md); added mesh-variant
+   cross-references to
+   [nomad-jobs/countdash/README.md](../../nomad-jobs/countdash/README.md) and
+   [nomad-jobs/hashicups/README.md](../../nomad-jobs/hashicups/README.md).
+
+All 9 rollout steps (0–8) are now complete and verified against a live AWS
+cluster. Both demo apps (Countdash and HashiCups) work end-to-end through the
+Consul API Gateway with mTLS and intentions enforced. See
+[api-gateway-envoy-bootstrap-troubleshooting.md](api-gateway-envoy-bootstrap-troubleshooting.md)
+for the four bugs found and fixed while getting the gateway itself working,
+including a Consul-catalog hygiene gotcha (stale sidecar-proxy registrations
+surviving a stopped job) that is easy to misattribute back to the gateway.
 
 ---
 

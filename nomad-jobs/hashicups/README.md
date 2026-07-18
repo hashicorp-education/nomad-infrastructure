@@ -6,6 +6,12 @@ demonstrates multi-node scheduling: each of the six services runs in its own
 Nomad group, which lets the scheduler place them on different client nodes.
 Services discover each other using Consul DNS names.
 
+A service mesh variant, [`hashicups-consul-service-mesh.nomad.hcl`](hashicups-consul-service-mesh.nomad.hcl),
+runs all six services with `network.mode = "bridge"` and Envoy Connect
+sidecar proxies instead of plain Consul DNS discovery, fronted by the Consul
+API Gateway. See [`nomad-jobs/consul-mesh/README.md`](../consul-mesh/README.md)
+for the full deploy order.
+
 ## Prerequisites
 
 This job requires a running Consul + Nomad cluster with dnsmasq configured.
@@ -18,6 +24,10 @@ ansible-playbook -i inventory.ini deploy_consul_nomad_sd.yaml
 
 # Option D — Consul + Nomad + service discovery + workload identity
 ansible-playbook -i inventory.ini deploy_consul_nomad_wi.yaml
+
+# Option E — Consul + Nomad + service discovery + workload identity + service mesh
+# (required for hashicups-consul-service-mesh.nomad.hcl)
+ansible-playbook -i inventory.ini deploy_consul_nomad_mesh.yaml
 ```
 
 After the playbook completes, source the environment variables:

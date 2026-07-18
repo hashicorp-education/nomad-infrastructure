@@ -9,6 +9,11 @@ Nomad-native service discovery.
 |------|----------------------------|
 | [`countdash-consul-service-discovery.nomad.hcl`](countdash-consul-service-discovery.nomad.hcl) | Consul (DNS lookup via dnsmasq) |
 | [`countdash-nomad-service-discovery.nomad.hcl`](countdash-nomad-service-discovery.nomad.hcl) | Nomad (built-in service catalog + template) |
+| [`countdash-consul-service-mesh.nomad.hcl`](countdash-consul-service-mesh.nomad.hcl) | Consul service mesh (Envoy Connect sidecars, bridge networking) |
+
+The mesh variant is deployed and verified through the Consul API Gateway, not
+directly on a public port — see [`nomad-jobs/consul-mesh/README.md`](../consul-mesh/README.md)
+for the full deploy order (service-defaults, intentions, gateway, http-route).
 
 ## Prerequisites
 
@@ -16,6 +21,7 @@ Nomad-native service discovery.
 |-----|-------------|
 | `countdash-consul-service-discovery` | Consul cluster deployed and dnsmasq configured on all Nomad clients (`deploy_consul_nomad_sd.yaml`) |
 | `countdash-nomad-service-discovery` | Nomad cluster only — no Consul required |
+| `countdash-consul-service-mesh` | Consul + Nomad service mesh cluster (`deploy_consul_nomad_mesh.yaml`) — see [`nomad-jobs/consul-mesh/README.md`](../consul-mesh/README.md) |
 
 
 ## AWS security group requirements
