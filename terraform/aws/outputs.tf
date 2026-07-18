@@ -39,6 +39,16 @@ output "client_private_ips" {
   value       = aws_instance.clients[*].private_ip
 }
 
+output "load_balancer_dns_name" {
+  description = "DNS name of the external ALB (null unless enable_load_balancer is true)"
+  value       = try(aws_lb.nomad_clients[0].dns_name, null)
+}
+
+output "load_balancer_url" {
+  description = "URL of the external ALB, forwarding to load_balancer_target_port on every client (null unless enable_load_balancer is true)"
+  value       = try("http://${aws_lb.nomad_clients[0].dns_name}", null)
+}
+
 output "consul_ui_urls" {
   description = "URLs to access Consul UI on servers (TLS enabled by default)"
   value       = [for ip in aws_instance.servers[*].public_ip : "https://${ip}:8443"]

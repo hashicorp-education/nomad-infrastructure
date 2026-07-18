@@ -9,6 +9,10 @@ The deployment has two phases:
 1. **Terraform** — Provisions AWS infrastructure (approximately five minutes)
 2. **Ansible** — Installs and configures Consul and Nomad (approximately 10–15 minutes)
 
+> **Working through a [Nomad tutorial](https://developer.hashicorp.com/nomad/tutorials)?**
+> See [_context/wiki/nomad-tutorial-scenario-mapping.md](_context/wiki/nomad-tutorial-scenario-mapping.md)
+> for which use case below satisfies each tutorial's prerequisites.
+
 ```mermaid
 flowchart TD
     START([Start]) --> TF1[Edit terraform.tfvars]
@@ -19,10 +23,16 @@ flowchart TD
     INV --> DEPS[ansible-galaxy install -r requirements.yaml]
     DEPS --> PICK{Choose use case}
 
+    PICK -->|"0 · Get Started (single-node)"| UC0[deploy_get_started.yaml]
     PICK -->|"1 · Consul only"| UC1[deploy_consul.yaml]
     PICK -->|"2 · Nomad only"| UC2[deploy_nomad.yaml]
     PICK -->|"3 · + service discovery"| UC3[deploy_consul_nomad_sd.yaml]
     PICK -->|"4 · + workload identity"| UC4[deploy_consul_nomad_wi.yaml]
+    PICK -->|"5 · + service mesh"| UC5[deploy_consul_nomad_mesh.yaml]
+
+    UC0 --> P0A[common_setup]
+    P0A --> P0B[get_started]
+    P0B --> P0Z([completion banner])
 
     UC1 --> P1A[common_setup]
     P1A --> P1B[consul_servers]
@@ -87,6 +97,18 @@ flowchart TD
 Each of the following use cases is a complete end-to-end checklist. Steps 1–4 are identical
 for all use cases. Follow only the checklist for your use case — each step links
 to the detailed section in this guide.
+
+### Use case Get Started: single-node Nomad agent (no Consul, no TLS, no ACLs)
+
+1. **[Install prerequisites](#prerequisites)**
+1. **[Configure AWS credentials](#aws-credentials)**
+1. **Set `server_count = 1` and `client_count = 0` in `terraform.tfvars`, then [provision infrastructure](#phase-1-provision-infrastructure-terraform)**
+1. **[Install Ansible Galaxy roles](#phase-2-cluster-configuration-ansible)**
+1. **[Deploy the single-node agent](#option-get-started-single-node-nomad-agent----deploy_get_startedyaml)**
+1. **Work through the [Get Started tutorials](https://developer.hashicorp.com/nomad/tutorials/get-started)**
+1. **[Clean up when done](#cleanup)**
+
+---
 
 ### Use case A: Consul cluster only
 
@@ -410,13 +432,46 @@ ansible all -m ping -vvv
 
 Run all commands from the `ansible/` directory with `-i inventory.ini`.
 
-Four use case entrypoints cover the most common deployment scenarios. Each one
+Six use case entrypoints cover the most common deployment scenarios. Each one
 first runs `common_setup`, which tests Ansible connectivity and configures all
 hosts. Then the process executes the required sub-playbooks in order and
-finishes with a `cluster_summary` that prints tokens and ready-to-paste `export`
-commands. The playbooks enable ACLs and create the bootstrap tokens.
+finishes with a `cluster_summary` (or, for the Get Started option, a plain
+completion banner) that prints ready-to-paste `export` commands. The Consul/
+Nomad options (A-E) enable ACLs and create bootstrap tokens; the Get Started
+option disables ACLs and TLS entirely.
 
 Choose the option that matches your requirements.
+
+---
+
+### Option Get Started: single-node Nomad agent — `deploy_get_started.yaml`
+
+Deploys a single combined Nomad server+client node with no Consul, no TLS,
+and no ACLs — equivalent to `nomad agent -dev`. Use this for the
+[Get Started tutorials](https://developer.hashicorp.com/nomad/tutorials/get-started),
+which expect a zero-config single node rather than an HA cluster.
+
+Requires `server_count = 1` and `client_count = 0` in
+[`terraform/aws/terraform.tfvars`](terraform/aws/terraform.tfvars) — re-run
+`terraform apply` after changing these before running this playbook.
+
+```bash
+ansible-playbook -i inventory.ini deploy_get_started.yaml
+```
+
+Sub-playbooks executed in order:
+
+| Step | Sub-playbook | Hosts | What it does |
+|------|-------------|-------|--------------|
+| 1 | `common_setup` | `all` | Configures passwordless sudo; tests Ansible connectivity (ping) |
+| 2 | `get_started` | `[servers]` (the single node) | Installs Docker; installs Nomad 2.0.4 with `nomad_server_enabled: true` **and** `nomad_client_enabled: true` on the same node, `bootstrap_expect: 1`, TLS and ACLs disabled; waits for port 4646 |
+| 3 | completion banner | `localhost` | Prints SSH access, the plain-HTTP Nomad UI URL, and an `export NOMAD_ADDR=http://...` command |
+
+**Duration:** ~5 minutes (single node, no TLS cert generation, no ACL bootstrap)
+
+This scenario does not create any token files in `ansible/tokens/`, and
+`set-cluster-env.sh` does not apply since there is no Consul/Nomad ACL token
+to export — set `NOMAD_ADDR` manually as printed by the completion banner.
 
 ---
 
@@ -644,7 +699,12 @@ source ./set-cluster-env.sh
 
 The script reads the first server IP from `inventory.ini` and token values from
 `ansible/tokens/`. It only exports variables whose token files exist, so it
-works correctly for all five options.
+works correctly for all five Consul/Nomad options (A-E).
+
+> **Get Started option:** `set-cluster-env.sh` exports nothing for this
+> scenario since it has no ACL bootstrap token. Use the `export
+> NOMAD_ADDR=http://...` command printed by `deploy_get_started.yaml`'s
+> completion banner instead.
 
 ### Manual export (without the helper script)
 
@@ -1244,6 +1304,38 @@ export NOMAD_TOKEN=$(cat ansible/tokens/nomad-bootstrap-secret-id.txt)
 nomad server members
 nomad acl token self
 ```
+
+---
+
+## Optional: external Application Load Balancer
+
+For the [Load Balancer Integrations tutorial](https://developer.hashicorp.com/nomad/tutorials/load-balancing),
+`terraform/aws/loadbalancer.tf` can provision an internet-facing ALB in front
+of the Nomad clients. It's disabled by default and works with any deployed
+use case (Get Started, A-E) — the ALB simply forwards HTTP traffic to a fixed
+port on every client.
+
+Edit `terraform/aws/terraform.tfvars`:
+
+```hcl
+enable_load_balancer      = true
+load_balancer_target_port = 9002  # defaults to the Countdash demo app's web UI port
+```
+
+```bash
+cd terraform/aws
+terraform plan
+terraform apply
+terraform output load_balancer_url
+```
+
+This creates a second, instance-free subnet in a second Availability Zone (ALBs
+require two AZs), a dedicated security group, a target group with one
+attachment per client instance, and a port-80 listener. See
+[_context/wiki/nomad-tutorials-infrastructure-roadmap.md](_context/wiki/nomad-tutorials-infrastructure-roadmap.md#phase-4--load-balancer-integration-implemented)
+for what this does and does not reproduce from the tutorial.
+
+To remove the ALB, set `enable_load_balancer = false` and re-apply.
 
 ---
 

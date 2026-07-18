@@ -22,6 +22,7 @@ Answer two questions to find your scenario:
 
 | I need… | Use |
 |---------|-----|
+| A single-node dev-style agent (no Consul, no TLS, no ACLs) for the Get Started tutorials | **Scenario Get Started** |
 | Consul cluster only | **Scenario A** |
 | Nomad cluster only (no Consul) | **Scenario B** |
 | Consul + Nomad (Nomad registers services in Consul) | **Scenario C** |
@@ -51,6 +52,23 @@ ls ssh_key.pem                        # SSH key must be present
 ## Step 3 — Run
 
 All commands are run from the `ansible/` directory.
+
+### Scenario Get Started — single-node Nomad agent (no Consul, no TLS, no ACLs)
+
+Requires `server_count = 1` and `client_count = 0` in `terraform.tfvars` before
+`terraform apply` — see `terraform/aws/terraform.tfvars.example`.
+
+```bash
+ansible-playbook -i inventory.ini deploy_get_started.yaml
+```
+
+Sub-playbooks (in order): `common_setup` → `get_started` (combined server+client, bootstrap_expect 1) → completion banner
+
+**Token files created:** none — no ACLs in this scenario. Set `NOMAD_ADDR=http://<server-ip>:4646` manually (printed by the completion banner); `set-cluster-env.sh` does not apply.
+
+**Duration:** ~5 minutes
+
+---
 
 ### Scenario A — Consul cluster only
 

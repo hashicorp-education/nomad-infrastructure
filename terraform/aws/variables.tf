@@ -102,3 +102,21 @@ variable "project_name" {
   type        = string
   default     = "nomad-consul"
 }
+
+variable "enable_load_balancer" {
+  description = "Create an external Application Load Balancer (ALB) in front of the Nomad clients, for the Load Balancer Integrations tutorial. Disabled by default."
+  type        = bool
+  default     = false
+}
+
+variable "load_balancer_target_port" {
+  description = "Fixed application port the ALB forwards to on every Nomad client instance. Defaults to the Countdash demo app's web UI port (also opened via extra_ingress_ports)."
+  type        = number
+  default     = 9002
+}
+
+variable "alb_subnet_cidr" {
+  description = "CIDR block for the second, instance-free subnet created only when enable_load_balancer is true (ALBs require two subnets in two Availability Zones). Must not overlap with subnet_cidr."
+  type        = string
+  default     = "10.0.2.0/24"
+}
