@@ -40,6 +40,17 @@ terraform plan
 terraform apply
 ```
 
+> **Shortcut:** `ansible-playbook -i inventory.ini playbooks/consul_nomad_api_gateway.yaml`
+> automates steps 1, 2, 3, 4, 5, 6, and 8 below for Countdash in one run
+> (service-defaults, intentions, self-signed gateway cert + inline-certificate
+> config entry, gateway listener, the countdash http-route, the Nomad
+> variable, and the API Gateway job itself — it also opens port 8447 in the
+> security group if Terraform hasn't already). It does **not** deploy step 7
+> (the countdash-mesh job itself), step 9 (HashiCups), or swap the
+> http-route — do those manually as shown below. Read on if you want to
+> understand or run each step individually (e.g. for HashiCups, or to
+> customize the gateway cert).
+
 ## Deploy order
 
 Follow this order exactly. Each step depends on the previous one.

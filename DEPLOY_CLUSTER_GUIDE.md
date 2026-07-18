@@ -617,6 +617,12 @@ listener → http-route → mesh app job → API Gateway job), which deploys:
   [`nomad-jobs/hashicups/hashicups-consul-service-mesh.nomad.hcl`](nomad-jobs/hashicups/hashicups-consul-service-mesh.nomad.hcl) — the two demo apps, mesh-enabled with Envoy sidecars and explicit `upstreams`
 - [`nomad-jobs/consul-mesh/api-gateway.nomad.hcl`](nomad-jobs/consul-mesh/api-gateway.nomad.hcl) — an Envoy-based Consul API Gateway in the `ingress` namespace, terminating HTTPS on port 8447 and routing to whichever demo app's `http-route` is currently applied
 
+> **Note:** only one app's `http-route` can be active at a time — both
+> `http-route-countdash.hcl` and `http-route-hashicups.hcl` match on
+> `Path.Match = "prefix", Value = "/"`. To switch which app the gateway
+> serves, delete the active route and apply the other:
+> `consul config delete -kind http-route -name countdash && consul config write nomad-jobs/consul-mesh/http-route-hashicups.hcl`.
+
 If the process encounters issues, refer to the [Troubleshooting section](#troubleshooting) and
 [_context/wiki/api-gateway-envoy-bootstrap-troubleshooting.md](_context/wiki/api-gateway-envoy-bootstrap-troubleshooting.md).
 

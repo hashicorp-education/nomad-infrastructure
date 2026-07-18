@@ -1,6 +1,14 @@
 # Consul inline-certificate config entry for the API Gateway TLS listener.
 #
-# This file is a TEMPLATE — do NOT write your cert/key inline and commit.
+# This file is a TEMPLATE for MANUAL use — do NOT write your cert/key inline
+# and commit. If you're running the full mesh deploy order, prefer
+# `ansible-playbook -i inventory.ini playbooks/consul_nomad_api_gateway.yaml`
+# instead, which generates this cert and applies the config entry
+# automatically (see the playbook's "gateway self-signed TLS cert" tasks and
+# templates/gateway-inline-certificate.hcl.j2). Use the manual steps below
+# only if you need a custom cert (e.g. non-self-signed) or are debugging the
+# automated path.
+#
 # Generate the certificate and write the config entry in a single pipeline:
 #
 #   Step 1: generate a self-signed certificate for the gateway listener

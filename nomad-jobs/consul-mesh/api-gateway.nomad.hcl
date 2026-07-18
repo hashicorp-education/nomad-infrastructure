@@ -11,9 +11,11 @@
 #        nomad var put -namespace ingress \
 #          nomad/jobs/api-gateway/gateway/setup \
 #          consul_cacert=@ansible/.tls/ca.pem
-#   3. Port 8447 open in the AWS security group
-#      (handled by ansible/playbooks/update-security-group.yaml, invoked
-#      automatically from consul_nomad_api_gateway.yaml).
+#   3. Port 8447 open in the AWS security group — already declared in
+#      terraform/aws/terraform.tfvars (extra_ingress_ports). If you haven't
+#      applied that, ansible/playbooks/update-security-group.yaml (invoked
+#      automatically from consul_nomad_api_gateway.yaml) opens it too; it
+#      checks for an existing rule first, so running both is harmless.
 #
 # Run (preferred): ansible-playbook -i inventory.ini playbooks/consul_nomad_api_gateway.yaml
 # Run (job only):
