@@ -80,6 +80,22 @@ else
     echo "    (nomad-bootstrap-secret-id.txt not found — run nomad_acl_bootstrap.yaml)"
 fi
 
+# ── Vault ─────────────────────────────────────────────────────────────────────
+_VAULT_TOKEN_FILE="${_SCRIPT_DIR}/tokens/vault-root-token-secret-id.txt"
+if [[ -f "${_VAULT_TOKEN_FILE}" ]]; then
+    export VAULT_ADDR="https://${_SERVER_IP}:8200"
+    export VAULT_TOKEN="$(cat "${_VAULT_TOKEN_FILE}")"
+    echo "  VAULT_ADDR=${VAULT_ADDR}"
+    echo "  VAULT_TOKEN=(set from vault-root-token-secret-id.txt)"
+    if [[ -f "${_TLS_CA_FILE}" ]]; then
+        export VAULT_CACERT="${_TLS_CA_FILE}"
+        echo "  VAULT_CACERT=${VAULT_CACERT}"
+    fi
+else
+    echo "  VAULT_ADDR / VAULT_TOKEN: skipped"
+    echo "    (vault-root-token-secret-id.txt not found — run vault_servers.yaml)"
+fi
+
 echo ""
 
-unset _SCRIPT_DIR _INVENTORY _SERVER_IP _CONSUL_TOKEN_FILE _NOMAD_TOKEN_FILE _TLS_CA_FILE
+unset _SCRIPT_DIR _INVENTORY _SERVER_IP _CONSUL_TOKEN_FILE _NOMAD_TOKEN_FILE _VAULT_TOKEN_FILE _TLS_CA_FILE

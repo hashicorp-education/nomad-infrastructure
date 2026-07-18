@@ -1,6 +1,6 @@
 # Roadmap: Using This Repo for Nomad Tutorial Infrastructure
 
-**Status: Proposal. Phases 1, 2, and 4 implemented; Phases 3, 5, and 6 not yet implemented.**
+**Status: Proposal. Phases 1, 2, 3, and 4 implemented; Phases 5 and 6 not yet implemented.**
 
 Goal: use this repo's Terraform + Ansible stack to stand up infrastructure for
 the different use cases covered by the
@@ -19,7 +19,7 @@ categories, rather than maintaining a separate cluster per category.
 | Service Discovery | 2 | **Phase 2** — Scenario C |
 | Consul Integration (health checks/mesh) | 4 | **Phase 2** — Scenario C/E (`deploy_consul_nomad_mesh.yaml`) |
 | Edge Workloads | 1 | **Phase 2** — mostly a job-config concern, not infra; works against any existing scenario |
-| Vault Integration | 1 | **Phase 3** — net-new: no Vault role/deployment exists in this repo today |
+| Vault Integration | 1 | **Phase 3** — implemented: self-hosted Vault cluster + Nomad workload identity via `deploy_nomad_vault.yaml` ("Scenario F"). Implements the generic "Nomad tasks fetch secrets from Vault" pattern rather than the official tutorial's specific PKI/mTLS-cert-rotation scope (gap, see Phase 3 section below) |
 | Load Balancer Integrations | 1 | **Phase 4** — implemented: optional ALB via `terraform/aws/loadbalancer.tf` (`enable_load_balancer = true`) |
 | Federated Workload Identity | 1 | **Phase 5** — net-new, highest risk: requires a **second concurrent cluster** (breaks the "one shared cluster" model — federation is inherently cross-cluster) |
 | Nomad Enterprise | 5 | **Phase 6** — scaffolded only; blocked pending an Enterprise license |
@@ -53,21 +53,55 @@ AWS-only repo, and Nomad's own built-in (Consul-independent) service mesh
 (used in one Service Discovery tutorial) is a different feature from this
 repo's Consul Connect-based Option E and isn't implemented here.
 
-## Phase 3 — Vault integration (not yet implemented)
+## Phase 3 — Vault integration (implemented)
+
+HashiCorp's "Integrate Nomad with Vault" tutorial category on
+developer.hashicorp.com contains exactly one tutorial, "Generate mTLS
+certificates for Nomad using Vault", which uses Vault's PKI secrets engine
+and consul-template to dynamically generate and rotate Nomad's own mTLS
+certificates. That is a job/config-specific undertaking (consul-template
+sidecar, PKI role and issuer setup, template stanzas for rotation), not the
+generic infrastructure-provisioning concern this roadmap otherwise focuses
+on. This phase instead implements the more general, broadly useful
+"Nomad tasks fetch secrets from Vault via workload identity" pattern —
+faithful to the roadmap's original Phase 3 intent — and documents the
+PKI/mTLS tutorial as a **gap**, not reproduced here (see
+[nomad-tutorial-scenario-mapping.md](nomad-tutorial-scenario-mapping.md)).
 
 - New `ansible/roles/vault/` mirroring the `nomad`/`consul` role structure:
-  `defaults/main.yaml`, `templates/vault.hcl.j2`, `meta/argument_specs.yaml`,
-  `tasks/main.yaml` with a `vault_validate` tag before restart notify,
-  `README.md`.
-- New sub-playbooks `ansible/playbooks/vault_servers.yaml` and
-  `consul_nomad_vault_integration.yaml` (configures Nomad's `vault {}` stanza
-  and Vault's Nomad secrets engine — same pattern as the existing
-  `consul_nomad_workload_identity.yaml`).
-- New top-level entrypoint `ansible/deploy_consul_nomad_vault.yaml`
-  ("Scenario F").
+  `defaults/main.yaml`, `templates/vault.hcl.j2` (Raft integrated storage —
+  no external storage backend or Consul dependency), `templates/vault.service.j2`,
+  `meta/argument_specs.yaml`, `tasks/main.yaml` with a `vault_validate` tag
+  (`vault operator diagnose`, `failed_when: false`) before the restart
+  notify, `README.md`.
+- New `ansible/roles/nomad_vault/` mirroring `nomad_consul`'s workload
+  identity pattern: enables a Vault JWT auth method (`jwt-nomad`) trusting
+  Nomad's JWKS endpoint, creates a read-only Vault ACL policy and JWT role
+  scoped to Nomad task claims (`nomad_namespace`, `nomad_job_id`,
+  `nomad_task`), and enables a KV v2 secrets engine at `secret/`.
+- New sub-playbooks:
+  - `ansible/playbooks/vault_servers.yaml` — installs Vault with Raft
+    storage and TLS (reusing the shared cluster CA), initializes with a
+    single unseal key share, unseals every server, saves the root token
+    and unseal key to `ansible/tokens/`.
+  - `ansible/playbooks/nomad_vault_integration.yaml` — three plays:
+    bootstrap the Vault JWT auth method/policy/role, then re-render Nomad
+    server config, then re-render Nomad client config, both with a
+    top-level `vault { jwt_auth_backend_path; default_identity }` block.
+- New top-level entrypoint `ansible/deploy_nomad_vault.yaml` ("Scenario F"),
+  built on Nomad only (no Consul dependency — Vault integration does not
+  require Consul): `common_setup` → `nomad_servers` → `nomad_clients` →
+  `nomad_acl_bootstrap` → `vault_servers` → `nomad_vault_integration` →
+  `cluster_summary`.
 - Self-hosted Vault (new role), not HCP Vault, per project owner preference —
   keeps everything inside this repo's existing AWS EC2 model instead of
   adding an external managed-service dependency.
+- Security simplifications (documented in `ansible/roles/vault/README.md`):
+  single unseal key share (`-key-shares=1 -key-threshold=1` instead of
+  Shamir's default 5-of-3, no auto-unseal/KMS) and running as `root`
+  (matching this repo's existing Nomad/Consul convention) instead of a
+  dedicated non-root user + `CAP_IPC_LOCK`. Neither pattern should be reused
+  for a production Vault cluster.
 
 ## Phase 4 — Load Balancer Integration (implemented)
 

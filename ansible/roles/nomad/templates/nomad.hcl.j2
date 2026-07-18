@@ -118,3 +118,25 @@ consul {
 {% endif %}
 }
 {% endif %}
+
+{% if nomad_vault_integration_enabled %}
+vault {
+  enabled = true
+  address = "{{ nomad_vault_address }}"
+
+{% if nomad_tls_enabled %}
+  ca_file = "{{ nomad_config_dir }}/.tls/ca.crt"
+{% endif %}
+{% if nomad_vault_workload_identity_enabled %}
+  jwt_auth_backend_path = "{{ nomad_vault_jwt_auth_backend_path }}"
+
+  # Default workload identity for Nomad tasks that use a vault {} block.
+  # Nomad servers inject this identity into every task; the Vault JWT auth
+  # method exchanges it for a scoped Vault token without a static token.
+  default_identity {
+    aud = ["{{ nomad_vault_default_identity_aud }}"]
+    ttl = "{{ nomad_vault_default_identity_ttl }}"
+  }
+{% endif %}
+}
+{% endif %}

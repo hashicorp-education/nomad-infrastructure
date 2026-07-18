@@ -2,18 +2,20 @@
 
 Phase 2 of [nomad-tutorials-infrastructure-roadmap.md](nomad-tutorials-infrastructure-roadmap.md).
 Maps each tutorial in the Cluster Setup, Nomad Variables, Service Discovery,
-Consul Integration, Edge Workloads, and Load Balancer Integrations categories on
+Consul Integration, Edge Workloads, Vault Integration, and Load Balancer
+Integrations categories on
 [developer.hashicorp.com/nomad/tutorials](https://developer.hashicorp.com/nomad/tutorials)
 to the existing `deploy_*.yaml` scenario (and, for Load Balancer Integrations,
 the optional Terraform add-on) in this repo that satisfies its prerequisites.
-This is a reference table only; the Load Balancer Integrations row is the one
-exception where new Terraform code (Phase 4) was involved.
+This is a reference table only; the Load Balancer Integrations row (Phase 4)
+and the Vault Integration row (Phase 3) are the exceptions where new code was
+involved.
 
 Scenario letters refer to [DEPLOY_CLUSTER_GUIDE.md](../../DEPLOY_CLUSTER_GUIDE.md)
 and the [deploy-scenario skill](../../.github/skills/deploy-scenario/SKILL.md):
 **Get Started** (single-node), **A** (Consul only), **B** (Nomad only),
 **C** (Consul + Nomad + service discovery), **D** (+ workload identity),
-**E** (+ service mesh).
+**E** (+ service mesh), **F** (Nomad + Vault workload identity, no Consul).
 
 ## Cluster Setup
 
@@ -59,8 +61,16 @@ and the [deploy-scenario skill](../../.github/skills/deploy-scenario/SKILL.md):
 |---|---|---|---|
 | Manage external traffic with application load balancing | [external-application-load-balancing](https://developer.hashicorp.com/nomad/tutorials/load-balancing/external-application-load-balancing) | Any (**A**-**E**) + `enable_load_balancer = true` | **Partial match** — this repo's `terraform/aws/loadbalancer.tf` (Phase 4) provisions the ALB itself against any deployed scenario's clients. The tutorial's own dc1/dc2 api/payments split and path-based `/api` vs `/payments` routing rules are not reproduced — see the gap below |
 
+## Integrate Nomad with Vault
+
+| Tutorial | URL | Scenario | Notes |
+|---|---|---|---|
+| Generate mTLS certificates for Nomad using Vault | [vault-pki-nomad](https://developer.hashicorp.com/nomad/tutorials/integrate-vault/vault-pki-nomad) | N/A | **Gap** — this tutorial uses Vault's PKI secrets engine plus a consul-template sidecar to dynamically generate and rotate Nomad's own mTLS certificates. This repo's TLS instead uses a static, self-signed CA generated once by the `tls` role (see [tls-enabled-by-default-plan.md](tls-enabled-by-default-plan.md)); dynamic cert rotation via Vault PKI is not implemented |
+| *(no official tutorial — implemented anyway)* | — | **F** | This repo implements the more general "Nomad tasks fetch secrets from Vault via workload identity" pattern instead (`deploy_nomad_vault.yaml`, Phase 3): a self-hosted Vault cluster (Raft storage, TLS) plus a Vault JWT auth method that trusts Nomad's workload identity tokens, letting `vault {}` blocks in job specs fetch scoped secrets with no static Vault token. Not a substitute for the PKI/mTLS tutorial above, but a common, broadly useful integration |
+
 ## Known gaps surfaced by this mapping
 
 1. **GCP and Azure Cluster Setup tutorials** — not applicable; this repo is AWS-only (`terraform/aws/`). Out of scope unless a new cloud workspace is added.
 2. **Nomad's built-in (Consul-independent) service mesh** — used in the second half of the "Deploy an app with Nomad service discovery" tutorial. Distinct from Option E's Consul Connect-based mesh. Not implemented in this repo; would need its own phase if prioritized.
 3. **Multi-datacenter path-based ALB routing** — the Load Balancer Integrations tutorial's dc1/dc2 api/payments split and per-path listener rules are not reproduced by Phase 4's single target group. This repo has one datacenter per cluster; per-path routing is left as a follow-up Terraform exercise for users who want full tutorial parity.
+4. **Vault PKI-based mTLS certificate generation and rotation for Nomad** — the sole tutorial in the Vault Integration category is not reproduced. Phase 3 implements a different, broadly useful Vault integration (secrets via workload identity) instead of Vault-managed dynamic Nomad certs.

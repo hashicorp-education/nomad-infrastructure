@@ -32,6 +32,9 @@ consul_domain: "global"
 # CNI plugins — https://github.com/containernetworking/plugins/releases
 cni_plugins_version: "1.9.1"
 
+# HashiCorp Vault — https://releases.hashicorp.com/vault
+vault_binary_version: "1.20.1"
+
 # dnsmasq — listen on both loopback (host processes) and the Docker bridge
 # gateway (Docker task driver containers) so .global DNS works in all contexts.
 # 172.17.0.1 is the default docker0 gateway; adjust if Docker is configured

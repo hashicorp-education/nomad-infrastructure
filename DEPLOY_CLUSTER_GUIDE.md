@@ -29,6 +29,7 @@ flowchart TD
     PICK -->|"3 · + service discovery"| UC3[deploy_consul_nomad_sd.yaml]
     PICK -->|"4 · + workload identity"| UC4[deploy_consul_nomad_wi.yaml]
     PICK -->|"5 · + service mesh"| UC5[deploy_consul_nomad_mesh.yaml]
+    PICK -->|"6 · Nomad + Vault"| UC6[deploy_nomad_vault.yaml]
 
     UC0 --> P0A[common_setup]
     P0A --> P0B[get_started]
@@ -90,6 +91,14 @@ flowchart TD
     P5K --> P5L[consul_nomad_workload_identity]
     P5L --> P5M[consul_nomad_service_mesh]
     P5M --> P5Z([cluster_summary])
+
+    UC6 --> P6A[common_setup]
+    P6A --> P6B[nomad_servers]
+    P6B --> P6C[nomad_clients]
+    P6C --> P6D[nomad_acl_bootstrap]
+    P6D --> P6E[vault_servers]
+    P6E --> P6F[nomad_vault_integration]
+    P6F --> P6Z([cluster_summary])
 ```
 
 ## Deployment workflows
@@ -172,6 +181,19 @@ to the detailed section in this guide.
 7. **[Deploy the service mesh apps and API Gateway](nomad-jobs/consul-mesh/README.md)**
 8. **[Verify the cluster](#post-deployment-verification)**
 9. **[Clean up when done](#cleanup)**
+
+---
+
+### Use case F: Nomad + Vault with workload identity (no Consul)
+
+1. **[Install prerequisites](#prerequisites)**
+2. **[Configure AWS credentials](#aws-credentials)**
+3. **[Provision infrastructure](#phase-1-provision-infrastructure-terraform)**
+4. **[Install Ansible Galaxy roles](#phase-2-cluster-configuration-ansible)**
+5. **[Deploy the cluster](#option-f-nomad--vault-with-workload-identity----deploy_nomad_vaultyaml)**
+6. **[Export environment variables](#post-deployment-set-environment-variables)**
+7. **[Verify the cluster](#post-deployment-verification)**
+8. **[Clean up when done](#cleanup)**
 
 ---
 
@@ -280,6 +302,18 @@ Defaults: [`ansible/roles/nomad/defaults/main.yaml`](ansible/roles/nomad/default
 | `nomad_acl_enabled` | `false` | Enable ACLs |
 | `nomad_tls_enabled` | `true` | Enable TLS |
 | `nomad_log_level` | `DEBUG` | Log level |
+
+### Ansible variables — Vault
+
+Defaults: [`ansible/roles/vault/defaults/main.yaml`](ansible/roles/vault/defaults/main.yaml)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `vault_binary_version` | `1.20.1` | Vault release to install |
+| `vault_tls_enabled` | `true` | Enable TLS |
+| `vault_cloud_auto_join_enabled` | `false` | Enable AWS Cloud Auto-Join for Raft `retry_join` |
+
+Vault uses Raft integrated storage — no external storage backend or Consul dependency.
 
 ---
 
@@ -685,6 +719,73 @@ To remove what Ansible deployed, first stop the mesh app and gateway jobs (see
 the Clean up section of [nomad-jobs/consul-mesh/README.md](nomad-jobs/consul-mesh/README.md)),
 then run the `teardown.yaml` playbook. Then run `unset-cluster-env.sh` to
 remove the environment variables from your terminal.
+
+---
+
+### Option F: Nomad + Vault with workload identity — `deploy_nomad_vault.yaml`
+
+Deploys a standalone Nomad cluster (no Consul) alongside a self-hosted Vault
+cluster (Raft integrated storage, TLS), then configures a Vault JWT auth
+method that validates Nomad workload identity JWTs, plus a scoped Vault ACL
+policy and role. Nomad tasks that declare a `vault {}` block automatically
+exchange their workload identity JWT for a short-lived, scoped Vault token —
+no static Vault token in job specs or Nomad agent configuration.
+
+Set Nomad, CNI plugin, and Vault versions in
+[`ansible/group_vars/all.yaml`](ansible/group_vars/all.yaml) before running:
+
+```bash
+ansible-playbook -i inventory.ini deploy_nomad_vault.yaml
+```
+
+Sub-playbooks executed in order:
+
+| Step | Sub-playbook | Hosts | What it does |
+|------|-------------|-------|--------------|
+| 1 | `common_setup` | `all` | Configures passwordless sudo; tests Ansible connectivity (ping) |
+| 2 | `nomad_servers` | `[servers]` | Installs Nomad 2.0.4 in server mode; generates self-signed TLS certificates |
+| 3 | `nomad_clients` | `[clients]` | Installs Nomad 2.0.4 in client mode; installs CNI plugins and Docker CE |
+| 4 | `nomad_acl_bootstrap` | `servers[0]` | Bootstraps Nomad ACL; saves management token to `ansible/tokens/` |
+| 5 | `vault_servers` | `[servers]` | Installs Vault 1.20.1 with Raft integrated storage and TLS (reuses the shared cluster CA); initializes Vault with a single unseal key share (`-key-shares=1 -key-threshold=1`, tutorial simplification — do not reuse for production); unseals every server; saves root token and unseal key to `ansible/tokens/vault-*.txt` |
+| 6 | `nomad_vault_integration` | `servers[0]` + `[servers]` + `[clients]` | Enables Vault JWT auth method `jwt-nomad` (JWKS URL points to the first Nomad server's HTTPS port 4646, trusted via the shared self-signed CA); creates ACL policy `nomad-workloads-policy` scoped to `secret/data/nomad/*`; creates JWT role `nomad-workloads`; enables a KV v2 secrets engine at `secret/`; reconfigures Nomad servers and clients with a top-level `vault { jwt_auth_backend_path; default_identity }` block; restarts Nomad |
+| 7 | `cluster_summary` | `localhost` | Prints Nomad and Vault tokens, all `export` commands, and both UI URLs |
+
+**Status summary includes:** Nomad bootstrap token, Vault root token and unseal key, `export NOMAD_ADDR`, `export NOMAD_TOKEN`, `export VAULT_ADDR`, `export VAULT_TOKEN`, and both UI URLs.
+
+Duration: approximately 15 minutes.
+
+Vault's API port (8200) is **not** open in the security group by default. To
+reach the Vault UI or API from outside the VPC, add `8200` to
+`extra_ingress_ports` in `terraform.tfvars` before running `terraform apply`,
+or use an SSH tunnel:
+
+```bash
+ssh -o 'IdentitiesOnly=yes' -i ssh_key.pem -L 8200:localhost:8200 ubuntu@<server-ip>
+```
+
+Verify the JWT auth method and secrets engine after deployment:
+
+```bash
+vault auth list
+# Expected output includes: jwt-nomad/
+
+vault secrets list
+# Expected output includes: secret/
+```
+
+**Gap vs. the official tutorial:** the "Integrate Nomad with Vault" tutorial
+category on developer.hashicorp.com contains one tutorial, "Generate mTLS
+certificates for Nomad using Vault", which uses Vault's PKI secrets engine and
+consul-template to dynamically generate and rotate Nomad's own mTLS
+certificates. This use case implements the more general "Nomad tasks fetch
+secrets from Vault via workload identity" pattern instead, which is not
+reproduced by that specific tutorial but is a common, broadly useful
+Nomad+Vault integration. See
+[_context/wiki/nomad-tutorial-scenario-mapping.md](_context/wiki/nomad-tutorial-scenario-mapping.md).
+
+If the process encounters issues, refer to the [Troubleshooting section](#troubleshooting).
+
+To remove what Ansible deployed, run the `teardown.yaml` playbook. Then run `unset-cluster-env.sh` to remove the environment variables from your terminal.
 
 ---
 
