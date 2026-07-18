@@ -311,9 +311,9 @@
     consul_datacenter: "dc1"
     consul_log_level: "INFO"
     # consul_use_aws_cloud_join defaults to true (AWS); a non-AWS inventory
-    # (e.g. ansible/inventory.multipass.ini) sets it to false in [all:vars],
-    # which falls back to the consul role's static-IP retry_join.
-    consul_cloud_auto_join_enabled: "{{ consul_use_aws_cloud_join | default(true) }}"
+    # (e.g. Multipass, see terraform/multipass/) sets it to false in
+    # [all:vars], which falls back to the consul role's static-IP retry_join.
+    consul_cloud_auto_join_enabled: "{{ consul_use_aws_cloud_join | default(true) | bool }}"
     consul_cloud_auto_join_tag_key: "AutoJoinRole"
     consul_cloud_auto_join_tag_value: "server"
     consul_acl_enabled: true

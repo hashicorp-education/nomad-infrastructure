@@ -1,6 +1,6 @@
 # Plan: Local Mac testing with Terraform + Multipass
 
-**Status: Proposal, not implemented.**
+**Status: Phase 0/1 implemented (`terraform/multipass/` workspace created, `terraform plan` verified clean). Phases 2/3 (Ansible deploy against real VMs) not yet run.**
 
 Goal: let a developer on an Apple Silicon Mac stand up the same Nomad (+
 optionally Consul/Vault) cluster this repo builds on AWS, but on local
@@ -145,12 +145,12 @@ templated, so this resolves correctly to `false` only for
 
 | Phase | Work | Status |
 |-------|------|--------|
-| 0 | Prereqs: `brew install --cask multipass`; confirm `multipass version`; confirm `terraform init` can fetch `larstobi/multipass` | Not started |
-| 1 | Build `terraform/multipass/` (§1, §2); `terraform apply`; confirm `multipass list` shows 5 running VMs and `ssh -i ~/.ssh/id_ed25519 ubuntu@<ip>` works manually | Not started |
+| 0 | Prereqs: `brew install --cask multipass`; confirm `multipass version`; confirm `terraform init` can fetch `larstobi/multipass` | **Done** (Multipass 1.16.3 already installed; `terraform init` fetched `larstobi/multipass` 1.4.3 cleanly) |
+| 1 | Build `terraform/multipass/` (§1, §2); `terraform apply`; confirm `multipass list` shows 5 running VMs and `ssh -i ~/.ssh/id_ed25519 ubuntu@<ip>` works manually | Workspace built, `terraform fmt`/`validate`/`plan` clean (7 resources to add: 5 VMs + cloud-init + inventory file). **`terraform apply` not yet run** — pending user go-ahead since it downloads a VM image and consumes real local resources |
 | 2 | Ansible connectivity smoke test: `ansible-playbook -i inventory.multipass.ini playbooks/common_setup.yaml` | Not started |
 | 3 | Run the chosen validation scenario end to end: `ansible-playbook -i inventory.multipass.ini deploy_consul_nomad_sd.yaml`; verify `consul members` (3 servers + 2 clients, all alive), `nomad server members` (3 servers, one Leader), `nomad node status` (2 clients, `ready`), and `consul catalog services` shows `nomad`/`nomad-client` | Not started |
 | 4 (done) | Consul auto-join override (§3) — applied to `consul_servers.yaml`, `consul_clients.yaml`, `consul_dns_token.yaml` | **Applied and syntax-checked** |
-| 5 (optional) | Document teardown: `terraform destroy` in `terraform/multipass/`, plus `multipass delete --all --purge` as a manual escape hatch if state drifts | Not started |
+| 5 (optional) | Document teardown: `terraform destroy` in `terraform/multipass/`, plus `multipass delete --all --purge` as a manual escape hatch if state drifts | Documented in `terraform/multipass/README.md` |
 
 ---
 

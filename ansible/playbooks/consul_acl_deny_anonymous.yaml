@@ -71,7 +71,7 @@
 
   - name: Copy anonymous-deny policy to server
     ansible.builtin.copy:
-      src: "{{ inventory_dir }}/files/consul/consul-anonymous-deny.hcl"
+      src: "{{ playbook_dir }}/../files/consul/consul-anonymous-deny.hcl"
       dest: "/tmp/consul-anonymous-deny.hcl"
       mode: "0600"
     become: true
