@@ -165,7 +165,7 @@ catalog API (works from any agent, unlike the agent-local endpoint):**
 
 ```bash
 # 1. Bring the backend back up
-nomad job run nomad-jobs/consul-mesh/countdash-consul-service-mesh.nomad.hcl
+nomad job run nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl
 
 # 2. Deregister stale entries directly via the catalog API (any agent can do this)
 curl -X PUT "$CONSUL_HTTP_ADDR/v1/catalog/deregister" \
@@ -187,6 +187,61 @@ actual `countdash-web` page.
 503/connection-refused through an otherwise-healthy gateway, check `nomad job
 status <backend-job>` first — it may simply be stopped, and/or the catalog
 may hold stale sidecar-proxy entries from before it was stopped.
+
+## 5. `Missing: nomad.var.block(...)` — no Nomad ACL policy grants the gateway task read access to its own variable
+
+Hit while rebuilding the gateway job from scratch (`nomad var put` +
+`nomad job run -namespace ingress api-gateway.nomad.hcl`) on a cluster
+where the gateway had previously been torn down. The `gateway` task's
+`template { {{- with nomadVar "nomad/jobs/api-gateway/gateway/setup" -}} }`
+block never resolved — `nomad alloc status` showed the task stuck
+`pending` with:
+
+```text
+Missing: nomad.var.block(nomad/jobs/api-gateway/gateway/setup@ingress.global)
+```
+
+The variable itself existed (`nomad var get -namespace ingress
+nomad/jobs/api-gateway/gateway/setup` returned it fine with the
+bootstrap/management token) — the problem is the **task's own workload
+identity** has no read grant for it. Nomad's implicit per-task variable
+access only auto-covers the exact path `nomad/jobs/<job>/<group>/<task>`;
+this variable's path (`.../gateway/setup`) doesn't match that pattern (the
+task is named `gateway`, but the path's last segment is `setup`), and
+`nomad acl policy list` showed **zero** policies on this cluster — nothing
+was ever created to grant this access explicitly.
+
+**Fix — a workload-associated Nomad ACL policy scoped to exactly this
+job/group/task:**
+
+```bash
+cat > /tmp/api-gateway-variables-policy.hcl <<'EOF'
+namespace "ingress" {
+  variables {
+    path "nomad/jobs/api-gateway/gateway/*" {
+      capabilities = ["read"]
+    }
+  }
+}
+EOF
+
+nomad acl policy apply -namespace ingress -job api-gateway -group gateway -task gateway \
+  api-gateway-variables /tmp/api-gateway-variables-policy.hcl
+```
+
+No task restart needed — the template resolved within seconds of applying
+the policy (Nomad's variable-read check is evaluated per-request against
+the task's current workload identity claims, not baked in at task start).
+
+**Takeaway:** this is a one-time **cluster ACL state** fact, not something
+`api-gateway.nomad.hcl` or any Ansible playbook currently creates — it will
+recur for anyone rebuilding the gateway job on a cluster that's had its
+Nomad ACL policies reset (e.g. after `nomad_acl_bootstrap.yaml` re-runs, or
+a fresh cluster). Not yet folded into
+`ansible/playbooks/consul_nomad_service_mesh.yaml` Play 4 (which already
+creates the `ingress` namespace and the Consul-side API Gateway binding
+rule) — a natural place to add it as a follow-up, so this doesn't need
+rediscovering.
 
 ## Useful commands referenced above
 

@@ -314,7 +314,7 @@ service-discovery job specs remain valid and unmodified.
 
 | File (new) | Purpose |
 |---|---|
-| `nomad-jobs/consul-mesh/countdash-consul-service-mesh.nomad.hcl` | Countdash with `network.mode = bridge`, `connect.sidecar_service` on both groups, explicit `upstreams` for `countdash-web` → `countdash-api` |
+| `nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl` | Countdash with `network.mode = bridge`, `connect.sidecar_service` on both groups, explicit `upstreams` for `countdash-web` → `countdash-api` |
 | `nomad-jobs/consul-mesh/hashicups-consul-service-mesh.nomad.hcl` | HashiCups with `network.mode = bridge` on all 6 groups, sidecars, explicit `upstreams` per the dependency table in `nomad-jobs/consul-sd/README-hashicups.md` |
 | `nomad-jobs/consul-mesh/api-gateway.nomad.hcl` (new directory) | Envoy-based Consul API Gateway job in the `ingress` namespace, using workload identity (`identity { name = "consul_default" }`) to bootstrap against Consul — modeled on the `consul-api-gateway-on-nomad` reference pattern |
 | `nomad-jobs/consul-mesh/gateway-listener.hcl` | Consul `api-gateway` config entry: HTTPS listener on 8447 |
@@ -388,7 +388,7 @@ image tag/version, which is out of scope for this pass.
    Nomad gRPC-TLS config + `ingress` namespace + gateway binding rule).
 3. Verify `consul.connect = true` on all Nomad clients.
 4. Apply `service-defaults` config entries for all mesh services.
-5. Deploy `countdash-consul-service-mesh.nomad.hcl`, apply its two
+5. Deploy `countdash-upstreams.nomad.hcl`, apply its two
    intentions, verify end-to-end.
 6. Deploy the API Gateway job + listener/http-route/cert config entries,
    apply gateway intentions, verify browser access via port 8447. **Done —

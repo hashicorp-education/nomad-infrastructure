@@ -32,6 +32,13 @@ consul_domain: "global"
 # CNI plugins — https://github.com/containernetworking/plugins/releases
 cni_plugins_version: "1.9.1"
 
+# consul-cni — https://releases.hashicorp.com/consul-cni
+# Only installed when consul_cni_enabled: true (service-mesh transparent
+# proxy scenario). Provisional pin, same caveat as consul_binary_version
+# above — re-verify compatibility against the actual installed Consul/Nomad
+# versions before relying on it (see _context/wiki/consul-service-mesh-plan.md §4).
+consul_cni_version: "1.6.2"
+
 # HashiCorp Vault — https://releases.hashicorp.com/vault
 vault_binary_version: "1.20.1"
 

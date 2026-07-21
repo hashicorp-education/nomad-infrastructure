@@ -702,7 +702,7 @@ itself — those are an application-level concern applied separately. Follow
 full deploy order (service-defaults → intentions → TLS cert → gateway
 listener → http-route → mesh app job → API Gateway job), which deploys:
 
-- [`nomad-jobs/consul-mesh/countdash-consul-service-mesh.nomad.hcl`](nomad-jobs/consul-mesh/countdash-consul-service-mesh.nomad.hcl) and/or
+- [`nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl`](nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl) and/or
   [`nomad-jobs/consul-mesh/hashicups-consul-service-mesh.nomad.hcl`](nomad-jobs/consul-mesh/hashicups-consul-service-mesh.nomad.hcl) — the two demo apps, mesh-enabled with Envoy sidecars and explicit `upstreams`
 - [`nomad-jobs/consul-mesh/api-gateway.nomad.hcl`](nomad-jobs/consul-mesh/api-gateway.nomad.hcl) — an Envoy-based Consul API Gateway in the `ingress` namespace, terminating HTTPS on port 8447 and routing to whichever demo app's `http-route` is currently applied
 
@@ -714,6 +714,29 @@ listener → http-route → mesh app job → API Gateway job), which deploys:
 
 If the process encounters issues, refer to the [Troubleshooting section](#troubleshooting) and
 [_context/wiki/api-gateway-envoy-bootstrap-troubleshooting.md](_context/wiki/api-gateway-envoy-bootstrap-troubleshooting.md).
+
+**Transparent proxy variant (optional, live-verified):** as an alternative
+to `countdash-upstreams.nomad.hcl`'s explicit `upstreams` block,
+[`nomad-jobs/consul-mesh/countdash-transparent-proxy.nomad.hcl`](nomad-jobs/consul-mesh/countdash-transparent-proxy.nomad.hcl)
+uses Consul's `transparent_proxy` mode instead — see
+[_context/wiki/transparent-proxy-vs-upstreams.md](_context/wiki/transparent-proxy-vs-upstreams.md)
+for the tradeoffs. Requires the separate `consul-cni` CNI plugin (installed
+by `consul_nomad_service_mesh.yaml` via `consul_cni_enabled: true`, already
+the default) **and**, if Nomad was already running on the clients
+beforehand, a manual restart of the Nomad client service on every client —
+confirmed live that Nomad only fingerprints new `/opt/cni/bin` plugins at
+agent startup:
+
+```bash
+ansible clients -i inventory.ini -m systemd -a "name=nomad state=restarted" -b
+nomad job run nomad-jobs/consul-mesh/countdash-transparent-proxy.nomad.hcl
+```
+
+Full rollout, four real bugs found and fixed along the way (a Consul
+DNS-ACL-token regression, the wrong DNS name convention for
+transparent-proxy interception, and two stale-catalog-entry cleanups), and
+verification details in
+[_context/wiki/transparent-proxy-enablement-plan.md](_context/wiki/transparent-proxy-enablement-plan.md).
 
 To remove what Ansible deployed, first stop the mesh app and gateway jobs (see
 the Clean up section of [nomad-jobs/consul-mesh/README.md](nomad-jobs/consul-mesh/README.md)),

@@ -7,6 +7,18 @@
 # identity):
 #   - Play 1/2: re-renders consul.hcl on servers and clients with
 #     connect.enabled = true and a real grpc_tls port, then restarts Consul.
+#     Both plays also re-supply consul_acl_dns_token (read from
+#     tokens/consul-dns-secret-id.txt) — without it, restarting Consul here
+#     silently reverts DNS ACL access to the anonymous token (denied by
+#     consul_acl_deny_anonymous.yaml), which breaks any in-mesh service that
+#     resolves another service by Consul DNS name (e.g. transparent_proxy
+#     job specs) with a bare NXDOMAIN and no other error. Found live while
+#     verifying transparent proxy — see
+#     _context/wiki/transparent-proxy-enablement-plan.md.
+#     Play 2 also installs the consul-cni plugin on clients
+#     (consul_cni_enabled: true) — required only if job specs later opt into
+#     Nomad's transparent_proxy mode; the default upstreams-based mesh job
+#     specs don't need it.
 #   - Play 3: re-renders nomad.hcl on Nomad CLIENTS with consul.grpc_address /
 #     consul.grpc_ca_file so Nomad can bootstrap Envoy sidecars against
 #     Consul's TLS-enabled gRPC/xDS listener. (Per Nomad's documented consul
@@ -53,6 +65,21 @@
     consul_connect_enabled: true
     consul_port_grpc_tls: 8503
 
+  pre_tasks:
+  - name: Read DNS token SecretID from local file
+    become: false
+    ansible.builtin.command: "cat {{ inventory_dir }}/tokens/consul-dns-secret-id.txt"
+    changed_when: false
+    delegate_to: localhost
+    run_once: true
+    register: consul_dns_out
+    no_log: true
+
+  - name: Set DNS token fact on all servers
+    ansible.builtin.set_fact:
+      consul_acl_dns_token: "{{ consul_dns_out.stdout | trim }}"
+    no_log: true
+
   roles:
   - role: consul
 
@@ -82,8 +109,31 @@
     consul_connect_enabled: true
     consul_port_grpc_tls: 8503
 
+  pre_tasks:
+  - name: Read DNS token SecretID from local file
+    become: false
+    ansible.builtin.command: "cat {{ inventory_dir }}/tokens/consul-dns-secret-id.txt"
+    changed_when: false
+    delegate_to: localhost
+    run_once: true
+    register: consul_dns_out
+    no_log: true
+
+  - name: Set DNS token fact on all clients
+    ansible.builtin.set_fact:
+      consul_acl_dns_token: "{{ consul_dns_out.stdout | trim }}"
+    no_log: true
+
   roles:
   - role: consul
+  - role: cni
+    vars:
+      # Installs the separate consul-cni plugin (not part of the standard
+      # CNI bundle already installed by nomad_clients.yaml) required for
+      # Nomad's transparent_proxy mode. Idempotent even if this role already
+      # ran during base client setup, since it checks for the consul-cni
+      # binary specifically, independent of the standard-plugins check.
+      consul_cni_enabled: true
 
 # ── Play 3: Add grpc_address/grpc_ca_file to Nomad client configs ──────────────
 

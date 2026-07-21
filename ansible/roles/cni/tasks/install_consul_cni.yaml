@@ -1,0 +1,24 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# consul-cni plugin installation tasks (transparent proxy support only)
+
+- name: Download consul-cni plugin
+  ansible.builtin.get_url:
+    url: "{{ consul_cni_url }}"
+    dest: "/tmp/consul-cni.zip"
+    mode: "0600"
+  register: consul_cni_file
+
+- name: Extract consul-cni plugin
+  become: true
+  ansible.builtin.unarchive:
+    remote_src: true
+    src: "{{ consul_cni_file.dest }}"
+    dest: "{{ cni_plugins_path }}"
+    mode: "0755"
+
+- name: Remove consul-cni zip file
+  ansible.builtin.file:
+    path: "{{ consul_cni_file.dest }}"
+    state: absent

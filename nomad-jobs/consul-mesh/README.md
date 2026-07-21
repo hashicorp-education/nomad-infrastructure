@@ -2,8 +2,9 @@
 
 This directory contains Consul config entries, the Nomad API Gateway job, and
 the mesh-enabled Countdash and HashiCups job specs for the **Option E**
-service mesh deployment. The non-mesh variant of HashiCups lives in
-[`../hashicups/`](../hashicups/) alongside its own README.
+service mesh deployment. The non-mesh variants of Countdash and HashiCups
+live in [`../consul-sd/`](../consul-sd/) and [`../nomad-sd/`](../nomad-sd/),
+each with their own job-specific README.
 
 ## Prerequisites
 
@@ -46,7 +47,7 @@ terraform apply
 > config entry, gateway listener, the countdash http-route, the Nomad
 > variable, and the API Gateway job itself — it also opens port 8447 in the
 > security group if Terraform hasn't already). It does **not** deploy step 7
-> (the countdash-mesh job itself), step 9 (HashiCups), or swap the
+> (the countdash-mesh-upstreams job itself), step 9 (HashiCups), or swap the
 > http-route — do those manually as shown below. Read on if you want to
 > understand or run each step individually (e.g. for HashiCups, or to
 > customize the gateway cert).
@@ -151,7 +152,7 @@ consul config write http-route-countdash.hcl
 consul config write http-route-hashicups.hcl
 ```
 
-> **Note:** both routes use `"prefix": "/"`. If you deploy both countdash-mesh
+> **Note:** both routes use `"prefix": "/"`. If you deploy both countdash-mesh-upstreams
 > and hashicups-mesh at the same time, the gateway will route all traffic to
 > whichever route was registered last. For isolated testing, apply only one
 > route at a time, or add a `Host` header match to distinguish them.
@@ -176,8 +177,8 @@ nomad var get -namespace ingress nomad/jobs/api-gateway/gateway/setup
 ### 7. Deploy and verify the countdash mesh job
 
 ```bash
-nomad job run nomad-jobs/consul-mesh/countdash-consul-service-mesh.nomad.hcl
-nomad job status countdash-mesh
+nomad job run nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl
+nomad job status countdash-mesh-upstreams
 # Wait until all allocs are "running" with a connect-proxy-* sidecar task
 ```
 
@@ -185,8 +186,51 @@ Check sidecar logs for bootstrap errors:
 
 ```bash
 nomad alloc logs -task connect-proxy-countdash-web \
-  $(nomad job allocs countdash-mesh | grep countdash-web | grep running | awk '{print $1}')
+  $(nomad job allocs countdash-mesh-upstreams | grep countdash-web | grep running | awk '{print $1}')
 ```
+
+### 7b. Optional: transparent proxy variant of Countdash
+
+**Live-verified end-to-end on a real AWS cluster** — see
+[`_context/wiki/transparent-proxy-enablement-plan.md`](../../_context/wiki/transparent-proxy-enablement-plan.md)
+for the full rollout and four bugs found/fixed along the way.
+
+`countdash-transparent-proxy.nomad.hcl` is an alternative to Step 7's
+`countdash-upstreams.nomad.hcl` — same app, but the
+countdash-web → countdash-api hop uses Consul's `transparent_proxy` instead
+of an explicit `upstreams` block, so countdash-web calls Consul's
+**virtual-IP** DNS name (`countdash-api.virtual.global` — *not* the classic
+`countdash-api.service.dc1.global` name used elsewhere in this repo; see the
+enablement-plan page's Bug 3) instead of a fixed `127.0.0.1` port. See
+[`_context/wiki/transparent-proxy-vs-upstreams.md`](../../_context/wiki/transparent-proxy-vs-upstreams.md)
+for why you'd pick one over the other.
+
+**Requires two extra prerequisites** beyond the base mesh setup, neither
+needed by the plain `upstreams`-based mesh job specs above:
+
+1. The `consul-cni` CNI plugin on Nomad clients, installed by re-running
+   `consul_nomad_service_mesh.yaml` Play 2 (already sets
+   `consul_cni_enabled: true`).
+2. **If Nomad was already running on the clients before step 1** (the
+   common case — true here), Nomad will not schedule this job until every
+   client's Nomad service is manually restarted. Nomad only fingerprints
+   `/opt/cni/bin` for new plugins at agent startup, confirmed live: without
+   the restart, placement fails with `Constraint
+   "${attr.plugins.cni.version.consul-cni} semver >= 1.4.2": N nodes
+   excluded by filter` even though the binary is present and executable.
+
+```bash
+ansible-playbook -i inventory.ini playbooks/consul_nomad_service_mesh.yaml
+ansible clients -i inventory.ini -m systemd -a "name=nomad state=restarted" -b
+nomad job run nomad-jobs/consul-mesh/countdash-transparent-proxy.nomad.hcl
+nomad job status countdash-mesh-tproxy
+```
+
+Uses the same service-defaults and intentions as Step 1/2 above
+(`countdash-api`, `countdash-web`) — no new Consul config entries needed if
+you already applied those for the `upstreams` variant. Run alongside (not
+instead of) `countdash-mesh-upstreams` if you want to compare both — they're
+independent jobs with independent job IDs.
 
 ### 8. Deploy the API Gateway job
 
@@ -238,7 +282,7 @@ curl -k https://<IP>:8447/
 - [ ] `consul config list -kind api-gateway` shows `api-gateway`
 - [ ] `consul config list -kind http-route` shows active route(s)
 - [ ] `nomad var get -namespace ingress nomad/jobs/api-gateway/gateway/setup` returns the CA cert
-- [ ] `nomad job status countdash-mesh` — all allocs running with `connect-proxy-*` sidecars
+- [ ] `nomad job status countdash-mesh-upstreams` — all allocs running with `connect-proxy-*` sidecars
 - [ ] `nomad job status -namespace ingress api-gateway` — allocation running
 - [ ] `curl -k https://<IP>:8447/` — HTTP 200 response
 - [ ] `consul intention check api-gateway countdash-web` — Allowed
@@ -251,7 +295,8 @@ curl -k https://<IP>:8447/
 # Stop mesh jobs
 nomad job stop -purge -namespace ingress api-gateway
 nomad job stop -purge hashicups-mesh
-nomad job stop -purge countdash-mesh
+nomad job stop -purge countdash-mesh-upstreams
+nomad job stop -purge countdash-mesh-tproxy   # if deployed (Step 7b)
 
 # Remove config entries
 consul config delete -kind http-route -name countdash
@@ -283,7 +328,8 @@ nomad var purge -namespace ingress nomad/jobs/api-gateway/gateway/setup
 
 | File | Kind | Description |
 |---|---|---|
-| `countdash-consul-service-mesh.nomad.hcl` | Nomad job | Countdash, mesh-enabled with Envoy Connect sidecars and bridge networking |
+| `countdash-upstreams.nomad.hcl` | Nomad job | Countdash, mesh-enabled with Envoy Connect sidecars and bridge networking (explicit `upstreams`) |
+| `countdash-transparent-proxy.nomad.hcl` | Nomad job | Countdash, same mesh but countdash-web → countdash-api uses `transparent_proxy` instead of `upstreams` (requires `consul-cni`) |
 | `hashicups-consul-service-mesh.nomad.hcl` | Nomad job | HashiCups (all six groups), mesh-enabled with Envoy Connect sidecars and bridge networking |
 | `gateway-listener.hcl` | `api-gateway` | HTTPS listener on port 8447 |
 | `inline-certificate.hcl` | instructions only | How to generate and apply the TLS cert |

@@ -117,7 +117,7 @@ loses AWS's public hostname):
 | `nomad-jobs/consul-sd/countdash-consul-service-discovery.nomad.hcl` | `countdash-web` | Renamed `countdash-web-platform` → `deployment_platform` |
 | `nomad-jobs/nomad-sd/countdash-nomad-service-discovery.nomad.hcl` | `countdash-web` | Same rename |
 | `nomad-jobs/consul-sd/hashicups-multipass.nomad.hcl` | `nginx` (the only externally-facing group of six) | New — didn't have any fallback before; added `deployment_platform` variable and the same ternary |
-| `nomad-jobs/consul-mesh/countdash-consul-service-mesh.nomad.hcl` | n/a | Not applicable — bridge networking + Consul Connect sidecars, no explicit `service.address` field at all |
+| `nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl` | n/a | Not applicable — bridge networking + Consul Connect sidecars, no explicit `service.address` field at all |
 
 ## Verification
 
