@@ -96,6 +96,29 @@ else
     echo "    (vault-root-token-secret-id.txt not found — run vault_servers.yaml)"
 fi
 
+# ── Job spec deployment platform ─────────────────────────────────────────────
+# Some job specs (nomad-jobs/consul-sd/countdash-consul-service-discovery.nomad.hcl,
+# nomad-jobs/nomad-sd/countdash-nomad-service-discovery.nomad.hcl,
+# nomad-jobs/consul-sd/hashicups-multipass.nomad.hcl) register a
+# publicly-reachable service's Consul catalog address differently on AWS
+# (EC2 public hostname) vs. Multipass/generic (attr.unique.network.ip-address,
+# a private/bridged IP either way) via a `deployment_platform` job variable.
+# Nomad's CLI reads NOMAD_VAR_<name> exactly like -var <name>=value, so
+# exporting it here means `nomad job run` picks the right value automatically
+# with no -var flag to remember - as long as this script was sourced first.
+#
+# Detected from inventory.ini: the Multipass-generated inventory sets
+# consul_use_aws_cloud_join=false in [all:vars] (see terraform/multipass/);
+# the AWS-generated inventory does not set it at all, defaulting to AWS -
+# same detection this repo's Ansible playbooks already use for cloud
+# auto-join, applied here to the job-spec side instead of the cluster side.
+if grep -q '^consul_use_aws_cloud_join=false' "${_INVENTORY}"; then
+    export NOMAD_VAR_deployment_platform="generic"
+else
+    export NOMAD_VAR_deployment_platform="aws"
+fi
+echo "  NOMAD_VAR_deployment_platform=${NOMAD_VAR_deployment_platform}"
+
 echo ""
 
 unset _SCRIPT_DIR _INVENTORY _SERVER_IP _CONSUL_TOKEN_FILE _NOMAD_TOKEN_FILE _VAULT_TOKEN_FILE _TLS_CA_FILE

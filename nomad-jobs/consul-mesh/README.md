@@ -1,9 +1,9 @@
 # Consul service mesh — config entries and API Gateway
 
-This directory contains Consul config entries and the Nomad API Gateway job
-for the **Option E** service mesh deployment. These files work together with
-the mesh-enabled Nomad job specs in
-[`../countdash/`](../countdash/) and [`../hashicups/`](../hashicups/).
+This directory contains Consul config entries, the Nomad API Gateway job, and
+the mesh-enabled Countdash and HashiCups job specs for the **Option E**
+service mesh deployment. The non-mesh variant of HashiCups lives in
+[`../hashicups/`](../hashicups/) alongside its own README.
 
 ## Prerequisites
 
@@ -176,7 +176,7 @@ nomad var get -namespace ingress nomad/jobs/api-gateway/gateway/setup
 ### 7. Deploy and verify the countdash mesh job
 
 ```bash
-nomad job run nomad-jobs/countdash/countdash-consul-service-mesh.nomad.hcl
+nomad job run nomad-jobs/consul-mesh/countdash-consul-service-mesh.nomad.hcl
 nomad job status countdash-mesh
 # Wait until all allocs are "running" with a connect-proxy-* sidecar task
 ```
@@ -212,7 +212,7 @@ curl -k https://<IP>:8447/
 ### 9. Deploy the HashiCups mesh job
 
 ```bash
-nomad job run nomad-jobs/hashicups/hashicups-consul-service-mesh.nomad.hcl
+nomad job run nomad-jobs/consul-mesh/hashicups-consul-service-mesh.nomad.hcl
 nomad job status hashicups-mesh
 ```
 
@@ -283,6 +283,8 @@ nomad var purge -namespace ingress nomad/jobs/api-gateway/gateway/setup
 
 | File | Kind | Description |
 |---|---|---|
+| `countdash-consul-service-mesh.nomad.hcl` | Nomad job | Countdash, mesh-enabled with Envoy Connect sidecars and bridge networking |
+| `hashicups-consul-service-mesh.nomad.hcl` | Nomad job | HashiCups (all six groups), mesh-enabled with Envoy Connect sidecars and bridge networking |
 | `gateway-listener.hcl` | `api-gateway` | HTTPS listener on port 8447 |
 | `inline-certificate.hcl` | instructions only | How to generate and apply the TLS cert |
 | `http-route-countdash.hcl` | `http-route` | Routes `api-gateway` → `countdash-web` |

@@ -17,7 +17,7 @@
 #
 # Prerequisites (all must be complete before running this playbook):
 #   1. consul_nomad_service_mesh.yaml                      — Consul Connect + ingress namespace + gateway binding rule
-#   2. countdash-consul-service-mesh.nomad.hcl deployed     — nomad job run nomad-jobs/countdash/countdash-consul-service-mesh.nomad.hcl
+#   2. countdash-consul-service-mesh.nomad.hcl deployed     — nomad job run nomad-jobs/consul-mesh/countdash-consul-service-mesh.nomad.hcl
 #      and healthy (nomad job status countdash-mesh shows Healthy=1 for both groups)
 #
 # Usage:

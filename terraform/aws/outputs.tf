@@ -39,6 +39,22 @@ output "client_private_ips" {
   value       = aws_instance.clients[*].private_ip
 }
 
+output "server_public_ips_by_node" {
+  description = "Public IP addresses of server instances, keyed by the Nomad node name Ansible assigns (nomad-server-N). Avoids cross-referencing the private IP Nomad reports (e.g. via `nomad node status` or a job's service-catalog address) against the parallel server_public_ips/server_private_ips lists by index - look up the node name directly instead."
+  value = {
+    for idx, instance in aws_instance.servers :
+    "nomad-server-${idx + 1}" => instance.public_ip
+  }
+}
+
+output "client_public_ips_by_node" {
+  description = "Public IP addresses of client instances, keyed by the Nomad node name Ansible assigns (nomad-client-N). Same rationale as server_public_ips_by_node - useful for finding the externally-reachable address of a job allocation (e.g. countdash-web) once you know which client node it landed on."
+  value = {
+    for idx, instance in aws_instance.clients :
+    "nomad-client-${idx + 1}" => instance.public_ip
+  }
+}
+
 output "load_balancer_dns_name" {
   description = "DNS name of the external ALB (null unless enable_load_balancer is true)"
   value       = try(aws_lb.nomad_clients[0].dns_name, null)

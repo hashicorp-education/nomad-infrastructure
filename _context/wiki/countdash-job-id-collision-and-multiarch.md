@@ -89,7 +89,7 @@ case), grep the repo for the literal job ID before assuming each file is
 self-contained:
 
 ```bash
-grep -rn '^job "' nomad-jobs/countdash/*.hcl
+grep -rn '^job "' nomad-jobs/consul-sd/*.hcl nomad-jobs/nomad-sd/*.hcl nomad-jobs/consul-mesh/countdash*.hcl
 ```
 
 ## Related

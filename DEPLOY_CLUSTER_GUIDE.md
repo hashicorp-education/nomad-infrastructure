@@ -702,8 +702,8 @@ itself — those are an application-level concern applied separately. Follow
 full deploy order (service-defaults → intentions → TLS cert → gateway
 listener → http-route → mesh app job → API Gateway job), which deploys:
 
-- [`nomad-jobs/countdash/countdash-consul-service-mesh.nomad.hcl`](nomad-jobs/countdash/countdash-consul-service-mesh.nomad.hcl) and/or
-  [`nomad-jobs/hashicups/hashicups-consul-service-mesh.nomad.hcl`](nomad-jobs/hashicups/hashicups-consul-service-mesh.nomad.hcl) — the two demo apps, mesh-enabled with Envoy sidecars and explicit `upstreams`
+- [`nomad-jobs/consul-mesh/countdash-consul-service-mesh.nomad.hcl`](nomad-jobs/consul-mesh/countdash-consul-service-mesh.nomad.hcl) and/or
+  [`nomad-jobs/consul-mesh/hashicups-consul-service-mesh.nomad.hcl`](nomad-jobs/consul-mesh/hashicups-consul-service-mesh.nomad.hcl) — the two demo apps, mesh-enabled with Envoy sidecars and explicit `upstreams`
 - [`nomad-jobs/consul-mesh/api-gateway.nomad.hcl`](nomad-jobs/consul-mesh/api-gateway.nomad.hcl) — an Envoy-based Consul API Gateway in the `ingress` namespace, terminating HTTPS on port 8447 and routing to whichever demo app's `http-route` is currently applied
 
 > **Note:** only one app's `http-route` can be active at a time — both
@@ -801,6 +801,16 @@ source ./set-cluster-env.sh
 The script reads the first server IP from `inventory.ini` and token values from
 `ansible/tokens/`. It only exports variables whose token files exist, so it
 works correctly for all five Consul/Nomad options (A-E).
+
+It also detects whether `inventory.ini` was generated for AWS or Multipass
+and exports `NOMAD_VAR_deployment_platform` accordingly (`aws` or
+`generic`). Some job specs (both Countdash service-discovery variants,
+HashiCups' `nginx` group) use this to automatically register the correct
+externally-reachable address in Consul/Nomad's service catalog — see
+[Deploy a Nomad job](#deploy-a-nomad-job) below and
+[`_context/wiki/deployment-platform-auto-detection.md`](_context/wiki/deployment-platform-auto-detection.md)
+for the full mechanism. Always source this script before running
+`nomad job run` on those job specs, on either platform.
 
 > **Get Started option:** `set-cluster-env.sh` exports nothing for this
 > scenario since it has no ACL bootstrap token. Use the `export
@@ -952,11 +962,21 @@ Use the bootstrap token values to log into the UIs. Find the values in these fil
 
 ## Deploy a Nomad job
 
-The job specification files for the example Countdash app are located in the
-root-level `nomad-jobs` directory. The app has a web UI that connects to an API
-on the server. Port 9002 (web UI) is included in the default `extra_ingress_ports`
-list in `terraform.tfvars`. To add ports for your own applications, see
+The job specification files for the example Countdash app are located under
+the root-level `nomad-jobs` directory, one subdirectory per service-discovery
+mechanism: `nomad-jobs/nomad-sd/` (Nomad-native) and `nomad-jobs/consul-sd/`
+(Consul). The app has a web UI that connects to an API on the server. Port
+9002 (web UI) is included in the default `extra_ingress_ports` list in
+`terraform.tfvars`. To add ports for your own applications, see
 [Managing security group ports](#managing-security-group-ports).
+
+Both variants automatically register the Countdash web UI's correct
+externally-reachable address (EC2 public hostname on AWS, the bridged VM
+address on Multipass) as long as you've sourced
+[`ansible/set-cluster-env.sh`](#post-deployment-set-environment-variables)
+first — no manual `-var` flag needed on either platform. See
+[`_context/wiki/deployment-platform-auto-detection.md`](_context/wiki/deployment-platform-auto-detection.md)
+for how this works.
 
 ### Deploy the app with Nomad for service discovery
 
@@ -964,11 +984,11 @@ This Countdash version uses Nomad for service discovery. For details on service
 discovery, refer to the [Configure service discovery
 documentation](https://developer.hashicorp.com/nomad/docs/job-declare/service-discovery).
 
-Change to the `nomad-jobs` directory and deploy the job.
+Change to the `nomad-jobs/nomad-sd` directory and deploy the job.
 
 ```bash
 nomad job run countdash-nomad-service-discovery.nomad.hcl
-nomad job status countdash
+nomad job status countdash-nomad-sd
 ```
 
 Find the Countdash web application's public IP and port.
@@ -980,7 +1000,7 @@ nomad service info -json countdash-web
 The `Address` field contains the public URL, and the `Port` field
 contains the port. Access the Countdash web UI at `http://<Address>:<Port>`.
 
-Purge the job with `nomad job stop --purge countdash`.
+Purge the job with `nomad job stop --purge countdash-nomad-sd`.
 
 ### Deploy the app with Consul for service discovery
 
@@ -989,11 +1009,12 @@ service discovery
 documentation](https://developer.hashicorp.com/nomad/docs/job-declare/service-discovery)
 for more information.
 
-Change to the `nomad-jobs` directory and deploy the job.
+Change to the `nomad-jobs/consul-sd` directory and deploy the job. The same
+command works on both Multipass and AWS:
 
 ```bash
 nomad job run countdash-consul-service-discovery.nomad.hcl
-nomad job status countdash
+nomad job status countdash-consul-sd
 ```
 
 Use the Consul API to find the Countdash public address. Before running the following command, complete these steps:
@@ -1165,8 +1186,8 @@ ansible-playbook -i inventory.ini playbooks/consul_dns_token.yaml
 After it completes, restart the Nomad job:
 
 ```bash
-nomad job stop countdash
-nomad job run nomad-jobs/countdash-consul-service-discovery.nomad.hcl
+nomad job stop countdash-consul-sd
+nomad job run nomad-jobs/consul-sd/countdash-consul-service-discovery.nomad.hcl
 ```
 
 **Prevention:** Always run `teardown.yaml` before destroying infrastructure.

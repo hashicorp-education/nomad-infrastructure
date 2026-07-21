@@ -165,7 +165,7 @@ catalog API (works from any agent, unlike the agent-local endpoint):**
 
 ```bash
 # 1. Bring the backend back up
-nomad job run nomad-jobs/countdash/countdash-consul-service-mesh.nomad.hcl
+nomad job run nomad-jobs/consul-mesh/countdash-consul-service-mesh.nomad.hcl
 
 # 2. Deregister stale entries directly via the catalog API (any agent can do this)
 curl -X PUT "$CONSUL_HTTP_ADDR/v1/catalog/deregister" \

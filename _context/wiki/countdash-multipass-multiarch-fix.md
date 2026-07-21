@@ -1,6 +1,9 @@
 # Countdash on Multipass: AWS node attributes + multi-arch images (2026-07-21)
 
-`nomad-jobs/countdash/countdash-consul-service-discovery.nomad.hcl` was written
+`nomad-jobs/consul-sd/countdash-consul-service-discovery.nomad.hcl` (originally
+at `nomad-jobs/countdash/` — see the path note in
+[countdash-aws-public-address-fallback.md](countdash-aws-public-address-fallback.md)
+for the later directory reorg) was written
 for the AWS scenarios and had two latent problems that only surface when
 deployed to the local Multipass cluster (`terraform/multipass/`). Both are now
 fixed and verified with a live deploy. Neither was caught by `nomad job
@@ -124,5 +127,5 @@ Job left running (not stopped/purged) at the user's request.
 - [multipass-local-testing-plan.md](multipass-local-testing-plan.md) — overall
   Multipass workspace plan; this fix is a job-spec-level follow-on to that
   effort, applied after the cluster itself was already validated working.
-- `nomad-jobs/hashicups/hashicups-multipass.nomad.hcl` — the earlier,
+- `nomad-jobs/consul-sd/hashicups-multipass.nomad.hcl` — the earlier,
   already-fixed instance of the same AWS-attribute portability problem.

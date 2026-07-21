@@ -1,15 +1,17 @@
-# Nomad Jobs
+# Countdash — Consul Service Discovery
 
-This directory contains two versions of the **Countdash** sample application — a
-two-tier web app consisting of a Java Spring Boot counter API and a Go web
-dashboard. The two versions demonstrate the difference between Consul-based and
-Nomad-native service discovery.
+This directory contains [`countdash-consul-service-discovery.nomad.hcl`](countdash-consul-service-discovery.nomad.hcl),
+one of three variants of the **Countdash** sample application — a two-tier
+web app consisting of a Java Spring Boot counter API and a Go web dashboard.
+This variant uses **Consul** for service discovery (DNS lookup via
+dnsmasq). The other two variants live in sibling directories and demonstrate
+different service-discovery mechanisms against the same app:
 
 | File | Service discovery provider |
 |------|----------------------------|
-| [`countdash-consul-service-discovery.nomad.hcl`](countdash-consul-service-discovery.nomad.hcl) | Consul (DNS lookup via dnsmasq) |
-| [`countdash-nomad-service-discovery.nomad.hcl`](countdash-nomad-service-discovery.nomad.hcl) | Nomad (built-in service catalog + template) |
-| [`countdash-consul-service-mesh.nomad.hcl`](countdash-consul-service-mesh.nomad.hcl) | Consul service mesh (Envoy Connect sidecars, bridge networking) |
+| `countdash-consul-service-discovery.nomad.hcl` (this directory) | Consul (DNS lookup via dnsmasq) |
+| [`../nomad-sd/countdash-nomad-service-discovery.nomad.hcl`](../nomad-sd/countdash-nomad-service-discovery.nomad.hcl) | Nomad (built-in service catalog + template) — see [`../nomad-sd/README.md`](../nomad-sd/README.md) |
+| [`../consul-mesh/countdash-consul-service-mesh.nomad.hcl`](../consul-mesh/countdash-consul-service-mesh.nomad.hcl) | Consul service mesh (Envoy Connect sidecars, bridge networking) — see [`../consul-mesh/README.md`](../consul-mesh/README.md) |
 
 The mesh variant is deployed and verified through the Consul API Gateway, not
 directly on a public port — see [`nomad-jobs/consul-mesh/README.md`](../consul-mesh/README.md)
@@ -17,11 +19,9 @@ for the full deploy order (service-defaults, intentions, gateway, http-route).
 
 ## Prerequisites
 
-| Job | Requirement |
-|-----|-------------|
-| `countdash-consul-service-discovery` | Consul cluster deployed and dnsmasq configured on all Nomad clients (`deploy_consul_nomad_sd.yaml`) |
-| `countdash-nomad-service-discovery` | Nomad cluster only — no Consul required |
-| `countdash-consul-service-mesh` | Consul + Nomad service mesh cluster (`deploy_consul_nomad_mesh.yaml`) — see [`nomad-jobs/consul-mesh/README.md`](../consul-mesh/README.md) |
+Consul cluster deployed and dnsmasq configured on all Nomad clients
+(`deploy_consul_nomad_sd.yaml`). The [`../nomad-sd/`](../nomad-sd/) variant
+needs only a Nomad cluster — no Consul required.
 
 
 ## AWS security group requirements
@@ -42,6 +42,8 @@ Browser (your machine)
     │  port 9002 (TCP, public internet)
     ▼
 EC2 instance running countdash-web task  ──► address = attr.unique.network.ip-address
+                                              (or attr.unique.platform.aws.public-hostname
+                                               on AWS - see below, detected automatically)
     │
     │  port 9001 (TCP, VPC-internal)
     │  resolved via Consul DNS (.global) or Nomad template
@@ -49,22 +51,81 @@ EC2 instance running countdash-web task  ──► address = attr.unique.network
 EC2 instance running countdash-api task  ──► address = attr.unique.network.ip-address
 ```
 
-Both tasks register `attr.unique.network.ip-address` — the platform-agnostic
-node attribute Nomad fingerprints on every host (AWS, Multipass, bare metal).
-This replaced the AWS-only `attr.unique.platform.aws.local-ipv4` /
-`attr.unique.platform.aws.public-hostname` attributes so these jobs also run
-on Multipass, which has no public/private network split.
+Both tasks register `attr.unique.network.ip-address` by default — the
+platform-agnostic node attribute Nomad fingerprints on every host (AWS,
+Multipass, bare metal). This replaced the AWS-only
+`attr.unique.platform.aws.local-ipv4` / `attr.unique.platform.aws.public-hostname`
+attributes so these jobs also run on Multipass, which has no public/private
+network split.
 
 **AWS caveat**: `attr.unique.network.ip-address` resolves to the EC2
-instance's **private** IPv4 on both tasks — there is no attribute that gives
-a public hostname/IP outside the AWS-specific `attr.unique.platform.aws.*`
-namespace. This doesn't affect actual reachability of the browser-facing port
-(port 9002 is still opened directly via the security group below, and a
-browser hits the instance's public IP/hostname directly — that traffic never
-goes through Consul/Nomad service discovery). It does mean `countdash-web`'s
-entry in the Consul/Nomad service catalog no longer shows an
-externally-usable address on AWS — get the instance's public IP/hostname from
-`terraform output` or the AWS console instead of from the service catalog.
+instance's **private** IPv4. This doesn't affect actual reachability of the
+browser-facing port (port 9002 is still opened directly via the security
+group below, and a browser hits the instance's public IP/hostname directly —
+that traffic never goes through Consul/Nomad service discovery). It does mean
+`countdash-web`'s entry in the Consul/Nomad service catalog no longer shows
+an externally-usable address on AWS by default. Two ways to get it:
+
+**Option A — read it from Terraform**, no job spec changes needed. Find
+which node `countdash-web` landed on (`nomad job status
+countdash-consul-sd`, check the alloc's node name), then:
+
+```bash
+cd terraform/aws
+terraform output client_public_ips_by_node   # or server_public_ips_by_node
+# {"nomad-client-1" = "1.2.3.4", "nomad-client-2" = "5.6.7.8", ...}
+```
+
+keyed directly by the Nomad node name shown in `nomad job status` — no
+index cross-referencing against the separate public/private IP lists
+required.
+
+**Option B — the job spec registers the public hostname itself, automatically**.
+`countdash-consul-service-discovery.nomad.hcl`, `countdash-nomad-service-discovery.nomad.hcl`,
+and `hashicups-multipass.nomad.hcl` (its `nginx` group) all expose a
+`deployment_platform` variable (default `"generic"` →
+`attr.unique.network.ip-address`; `"aws"` → `attr.unique.platform.aws.public-hostname`).
+You do not need to pass `-var` by hand — source
+[`ansible/set-cluster-env.sh`](../../ansible/set-cluster-env.sh) before
+running any of these jobs (you already do this for `CONSUL_HTTP_ADDR` /
+`NOMAD_TOKEN` / etc.), and it detects the platform from `ansible/inventory.ini`
+and exports `NOMAD_VAR_deployment_platform` for you — Nomad's CLI reads
+`NOMAD_VAR_<name>` exactly like `-var <name>=value`:
+
+```bash
+cd ansible && source ./set-cluster-env.sh   # also exports NOMAD_VAR_deployment_platform
+cd ../nomad-jobs/consul-sd
+nomad job run countdash-consul-service-discovery.nomad.hcl   # no -var needed
+```
+
+**Why this needs an env var instead of being fully automatic (e.g. driven by
+Nomad node metadata Ansible could set with zero shell setup)**: tried that
+first — confirmed by live testing, not assumed. Nomad's `service.address`
+field only resolves this ternary correctly when its *condition* is a `var.*`
+value, known at job-submission time before any node is chosen. A node-level
+`attr.*`/`meta.*` condition (which Ansible could set automatically, no
+sourcing required) silently resolves to the wrong (private-IP) branch with
+**no error**, even when genuinely true on that node — confirmed with a
+`constraint` block on the identical attribute as a control test, which
+correctly matched, proving the value itself was fine; only its use as this
+ternary's condition failed. Full write-up in
+[`_context/wiki/deployment-platform-auto-detection.md`](../../_context/wiki/deployment-platform-auto-detection.md).
+
+**Sharp edge that still applies** (now much less likely to hit, since the
+env var is set automatically rather than typed by hand each time): each
+*branch* of the ternary (as opposed to its condition) is still resolved
+per-node, at runtime. If `NOMAD_VAR_deployment_platform` somehow doesn't
+match the platform you're actually deploying to (e.g. `set-cluster-env.sh`
+wasn't sourced, or `inventory.ini` is stale), Nomad does not error — it
+silently registers the literal unresolved text
+`${attr.unique.platform.aws.public-hostname}` as the service address, which
+then fails the health check trying to parse that literal text as a URL
+(`invalid URL escape "%7B"` in the check output). If you see that exact
+error, `NOMAD_VAR_deployment_platform` doesn't match reality — re-source
+`set-cluster-env.sh`, don't edit the job spec.
+
+Option A remains useful as a fallback/cross-check independent of the job
+spec, or if you need the public IP/hostname without deploying anything.
 
 ### Security note
 
@@ -81,15 +142,14 @@ ansible-playbook update-security-group.yaml \
 
 Refer to [`ansible/README-SECURITY-GROUP.md`](../ansible/README-SECURITY-GROUP.md) for full playbook usage.
 
-## Running the jobs
+## Running the job
 
 ```bash
-# Consul service discovery variant
 nomad job run countdash-consul-service-discovery.nomad.hcl
-
-# Nomad service discovery variant
-nomad job run countdash-nomad-service-discovery.nomad.hcl
 ```
+
+To run the Nomad-native variant instead, see
+[`../nomad-sd/README.md`](../nomad-sd/README.md).
 
 Override a default port at run time:
 
@@ -101,8 +161,12 @@ nomad job run -var="countdash-api-port=9010" countdash-consul-service-discovery.
 
 ## Job specification reference
 
-The sections below walk through every stanza used in these files and explain
-what each one does.
+The sections below walk through every stanza used in this file and explain
+what each one does. The Nomad-native variant
+([`../nomad-sd/`](../nomad-sd/)) shares most of this structure — differences
+are called out inline and summarized in
+["Comparison with the Nomad-native variant"](#comparison-with-the-nomad-native-variant)
+at the end.
 
 ### `variable` blocks
 
@@ -115,7 +179,7 @@ variable "countdash-api-port" {
 
 Top-level variables set defaults that can be overridden at `nomad job run`
 time with the `-var` flag. They are referenced elsewhere in the file with
-`var.<name>`. Both jobs expose two variables:
+`var.<name>`. This job exposes:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
@@ -123,6 +187,7 @@ time with the `-var` flag. They are referenced elsewhere in the file with
 | `countdash-web-port` | `9002` | Static port bound by the web container |
 | `countdash-api-version` | `v3` | API image tag prefix. Combined with `${attr.cpu.arch}` at task-start time (see `config` block below) to select `hashicorpdev/counter-api:v3-amd64` or `v3-arm64` automatically |
 | `countdash-web-version` | `v3` | Web image tag prefix, same `${attr.cpu.arch}` mechanism as above |
+| `deployment_platform` | `generic` | Selects which node attribute `countdash-web` registers its address as (`generic` → `attr.unique.network.ip-address`, `aws` → the EC2 public hostname). Set automatically by `ansible/set-cluster-env.sh` — see ["How traffic flows"](#how-traffic-flows) above |
 
 ---
 
@@ -153,7 +218,7 @@ group "countdash-api" {
 ```
 
 A group is a set of tasks that are co-scheduled on the same Nomad client node.
-`count` controls how many instances of the group to run. Both jobs have two
+`count` controls how many instances of the group to run. This job has two
 groups:
 
 | Group | Role |
@@ -186,15 +251,16 @@ Nomad assign a dynamic port. Static ports are used here because the
 applications read their own port from environment variables or config files, so
 they must be predictable.
 
-**`dns` stanza** *(Consul job only)*
+**`dns` stanza**
 
 `dns.servers` passes a list of DNS resolver addresses to Docker via the
 `--dns` flag. `172.17.0.1` is the Docker bridge gateway — the address of
 the host as seen from inside a Docker container. Pointing containers to
 this address routes their DNS queries to dnsmasq, which forwards `.global`
 lookups to the local Consul agent (port 8600) and everything else to the
-AWS VPC resolver. This stanza is absent from the Nomad service discovery job
-because that job does not perform `.global` DNS lookups.
+AWS VPC resolver. This stanza is what makes `.global` DNS names (used in the
+`env` block below) resolvable from inside the container — the Nomad-native
+variant omits it entirely, since it doesn't perform `.global` DNS lookups.
 
 ---
 
@@ -203,7 +269,7 @@ because that job does not perform `.global` DNS lookups.
 ```hcl
 service {
   name     = "countdash-api"
-  provider = "consul"          # or "nomad"
+  provider = "consul"
   port     = "countdash-api"
   address  = attr.unique.network.ip-address
   ...
@@ -216,18 +282,9 @@ services can discover it.
 | Field | Description |
 |-------|-------------|
 | `name` | Name under which the service is registered in the catalog |
-| `provider` | `"consul"` to register with Consul; `"nomad"` to register with Nomad's built-in catalog |
+| `provider` | `"consul"` — registers with Consul (the Nomad-native variant uses `"nomad"` instead; see [comparison table](#comparison-with-the-nomad-native-variant)) |
 | `port` | References the named port from the `network` block |
 | `address` | Overrides the registered IP/hostname. `attr.unique.network.ip-address` is the platform-agnostic node attribute Nomad fingerprints on every host — resolves to the private IPv4 on AWS, the single bridged-network IP on Multipass. Both `countdash-api` and `countdash-web` use the same attribute (see the AWS caveat under "How traffic flows" above for what this means for the web tier specifically on AWS) |
-
-**Provider differences**
-
-| Aspect | `provider = "consul"` | `provider = "nomad"` |
-|--------|----------------------|----------------------|
-| Catalog | Consul service catalog | Nomad built-in catalog |
-| DNS lookup | `<name>.service.<dc>.global` via dnsmasq | Not available via DNS |
-| Template function | `{{ service "name" }}` | `{{ nomadService "name" }}` |
-| Requires Consul | Yes | No |
 
 ---
 
@@ -243,9 +300,9 @@ check {
 }
 ```
 
-Health checks run on the same node as the task. Nomad (or Consul, when
-`provider = "consul"`) polls the check endpoint on the given `interval` and
-marks the service unhealthy if the check does not respond within `timeout`.
+Health checks run on the same node as the task. Consul polls the check
+endpoint on the given `interval` and marks the service unhealthy if the
+check does not respond within `timeout`.
 
 | Field | Description |
 |-------|-------------|
@@ -282,7 +339,7 @@ task "countdash-api" {
 ```
 
 A `task` is the smallest schedulable unit in Nomad. The `driver` field selects
-the task driver responsible for running the workload. Both jobs use `"docker"`.
+the task driver responsible for running the workload — `"docker"` here.
 
 ---
 
@@ -344,9 +401,7 @@ directly against a running cluster.
 ### `template` block
 
 The `template` block renders a file into the task's working directory using
-Go template syntax. The two jobs use templates for different purposes.
-
-**Config file injection (both jobs — API task)**
+Go template syntax, used here only for config file injection (API task):
 
 ```hcl
 template {
@@ -360,29 +415,9 @@ bind-mounts it into the container (see `mount` above). This injects the port
 at job submission time so the Java process listens on the correct port without
 rebuilding the image.
 
-**Dynamic service address resolution (Nomad service discovery job — web task)**
-
-```hcl
-template {
-  data = <<EOH
-BIND_ADDRESS = ":${var.countdash-api-port}"
-{{ range nomadService "countdash-api" }}
-COUNTING_SERVICE_URL = "http://{{ .Address }}:{{ .Port }}"
-{{ end }}
-EOH
-  destination = "local/env.txt"
-  env         = true
-}
-```
-
-`nomadService "countdash-api"` queries the Nomad service catalog at render
-time and returns all healthy instances of the `countdash-api` service. The
-template iterates over the results and writes the IP and port of the first
-instance into `COUNTING_SERVICE_URL`. Setting `env = true` causes Nomad to
-export every `KEY = "value"` line in the rendered file as an environment
-variable in the task, so the web container receives `COUNTING_SERVICE_URL`
-at startup. Nomad re-renders the template and restarts the task whenever the
-service catalog entry changes.
+Unlike the Nomad-native variant, this job does *not* use `template` for
+service address resolution — see the `env` block below and the
+[comparison table](#comparison-with-the-nomad-native-variant) for why.
 
 ---
 
@@ -395,17 +430,14 @@ env {
 }
 ```
 
-*(Consul service discovery job — web task only)*
+*(web task only)*
 
-`env` sets static environment variables in the container. In the Consul
-variant, `COUNTING_SERVICE_URL` is a hardcoded Consul DNS name
-(`countdash-api.service.dc1.global`) that resolves at runtime via dnsmasq.
-This is simpler than the `nomadService` template but requires Consul and
-dnsmasq to be deployed and functioning on the client node.
-
-The Nomad service discovery job does not use an `env` block for the URL
-because it resolves the address dynamically through the `template` block
-described above.
+`env` sets static environment variables in the container.
+`COUNTING_SERVICE_URL` is a hardcoded Consul DNS name
+(`countdash-api.service.dc1.global`) that resolves at runtime via dnsmasq —
+simpler than the Nomad-native variant's `nomadService` template approach, but
+requires Consul and dnsmasq to be deployed and functioning on the client
+node.
 
 ---
 
@@ -430,9 +462,12 @@ baseline footprint is significant. The web task uses the default.
 
 ---
 
-## Key difference between the two jobs
+## Comparison with the Nomad-native variant
 
-| | Consul service discovery | Nomad service discovery |
+See [`../nomad-sd/README.md`](../nomad-sd/README.md) for the full reference
+on the Nomad-native variant. Summary of the differences:
+
+| | This job (Consul) | [`../nomad-sd/`](../nomad-sd/) (Nomad-native) |
 |-|--------------------------|------------------------|
 | Service registration | Consul catalog | Nomad catalog |
 | Web → API address resolution | `.global` DNS name resolved at connection time via dnsmasq | `nomadService` template renders address at startup; task restarts on change |

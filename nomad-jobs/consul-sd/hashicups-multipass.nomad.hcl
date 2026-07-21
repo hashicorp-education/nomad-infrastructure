@@ -9,8 +9,13 @@
 # attr.unique.platform.aws.public-hostname node attributes are only
 # fingerprinted via the EC2 metadata service and are absent on local
 # Multipass VMs. Replaced with attr.unique.network.ip-address, the
-# platform-agnostic node attribute Nomad fingerprints on every host.
-# See hashicups.nomad.hcl for the AWS variant.
+# platform-agnostic node attribute Nomad fingerprints on every host, for
+# every group except nginx (the one externally-facing service) - it falls
+# back to attr.unique.platform.aws.public-hostname when var.deployment_platform
+# = "aws", auto-detected and exported by ansible/set-cluster-env.sh so this
+# same file works unmodified on both AWS and Multipass. See
+# hashicups.nomad.hcl for the AWS-only variant and the nginx group below for
+# the full explanation of why this needs a var and can't be fully automatic.
 #-------------------------------------------------------------------------------
 
 
@@ -100,11 +105,21 @@ variable "db_port" {
   default = 5432
 }
 
-### ----------------------------------------------------------------------------
-###  Job "HashiCups"
-### ----------------------------------------------------------------------------
+variable "deployment_platform" {
+  description = "Set to \"aws\" so the nginx group's service-catalog entry registers the EC2 public hostname (externally reachable) instead of the private IP. Defaults to \"generic\", which uses attr.unique.network.ip-address - correct for Multipass, and for AWS internal-only access, but not externally reachable on AWS. Shared across every job spec in this repo that needs this fallback (this file, countdash-consul-service-discovery.nomad.hcl, countdash-nomad-service-discovery.nomad.hcl) - set it once via NOMAD_VAR_deployment_platform (see ansible/set-cluster-env.sh, which detects the platform from inventory.ini and exports this automatically) rather than passing -var by hand on every job run."
+  default = "generic"
+}
 
-job "hashicups" {
+### ----------------------------------------------------------------------------
+###  Job "HashiCups" (Multipass variant)
+### ----------------------------------------------------------------------------
+# Named "hashicups-multipass", not "hashicups", so this and hashicups.nomad.hcl
+# (the AWS variant) can be deployed to the same cluster at once without one
+# overwriting the other via an in-place job update - the same job-ID
+# collision bug found and fixed for the Countdash job specs (see
+# _context/wiki/countdash-job-id-collision-and-multiarch.md).
+
+job "hashicups-multipass" {
   type   = "service"
   region = var.region
   datacenters = var.datacenters
@@ -417,7 +432,30 @@ job "hashicups" {
         name = "nginx"
         provider = "consul"
         port = "nginx-tls"
-        address  = attr.unique.network.ip-address
+        # attr.unique.network.ip-address is the platform-agnostic node attribute
+        # Nomad fingerprints on every host - correct as-is on Multipass (no
+        # public/private split; the single bridged NIC IP is already reachable
+        # from the host machine's browser). On AWS this resolves to the
+        # *private* IP, so set var.deployment_platform=aws to register the
+        # public hostname instead (only fingerprinted on AWS via the EC2
+        # metadata service). Don't pass -var by hand for this - source
+        # ansible/set-cluster-env.sh, which detects the platform from
+        # inventory.ini and exports NOMAD_VAR_deployment_platform automatically
+        # (Nomad's CLI reads NOMAD_VAR_<name> exactly like -var <name>=value).
+        #
+        # WHY THIS IS var.* AND NOT meta.* OR attr.* AS THE CONDITION - confirmed
+        # by live testing (see nomad-jobs/consul-sd/countdash-consul-service-discovery.nomad.hcl
+        # for the full test writeup): this ternary's *condition* must be a
+        # var.* value, known at job-submission time - a node-level attr.*/meta.*
+        # condition silently resolves to the wrong (private-IP) branch with no
+        # error, even when genuinely true on that node. If the selected
+        # *branch* doesn't exist on the placed node (e.g. deployment_platform=aws
+        # run against non-AWS infra), Nomad silently registers the literal,
+        # unresolved text "${attr.unique.platform.aws.public-hostname}" as the
+        # address, which then fails the health check below. If you see that,
+        # deployment_platform doesn't match the platform you're actually
+        # deploying to - fix the var/env, not the job spec.
+        address  = var.deployment_platform == "aws" ? attr.unique.platform.aws.public-hostname : attr.unique.network.ip-address
         check {
           name           = "NGINX ready"
 					type           = "http"

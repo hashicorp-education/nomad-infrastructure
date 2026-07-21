@@ -51,8 +51,8 @@ After the playbook completes, verify both addresses appear, then redeploy the jo
 so the containers pick up a fresh DNS configuration:
 
 ```bash
-nomad job stop countdash
-nomad job run nomad-jobs/countdash-consul-service-discovery.nomad.hcl
+nomad job stop countdash-consul-sd
+nomad job run nomad-jobs/consul-sd/countdash-consul-service-discovery.nomad.hcl
 ```
 
 ---
@@ -62,7 +62,7 @@ nomad job run nomad-jobs/countdash-consul-service-discovery.nomad.hcl
 Get the allocation ID for the `countdash-web` task:
 
 ```bash
-nomad job status countdash
+nomad job status countdash-consul-sd
 nomad alloc exec -task countdash-web <alloc-id> /bin/sh
 ```
 
@@ -191,8 +191,8 @@ dig @127.0.0.1 -p 8600 countdash-api.service.dc1.global
 Then restart the Nomad job to refresh the `COUNTING_SERVICE_URL` env var:
 
 ```bash
-nomad job stop countdash
-nomad job run nomad-jobs/countdash-consul-service-discovery.nomad.hcl
+nomad job stop countdash-consul-sd
+nomad job run nomad-jobs/consul-sd/countdash-consul-service-discovery.nomad.hcl
 ```
 
 ### Prevention
@@ -206,6 +206,6 @@ before running the next deployment.
 
 ## Related files
 
-- [`nomad-jobs/countdash-consul-service-discovery.nomad.hcl`](../../nomad-jobs/countdash-consul-service-discovery.nomad.hcl)
+- [`nomad-jobs/consul-sd/countdash-consul-service-discovery.nomad.hcl`](../../nomad-jobs/consul-sd/countdash-consul-service-discovery.nomad.hcl)
 - [`ansible/roles/dnsmasq/README.md`](../../ansible/roles/dnsmasq/README.md) — dnsmasq OS interaction and Docker bridge DNS details
 - [`_context/wiki/dnsmasq-consul-docker-dns.md`](dnsmasq-consul-docker-dns.md) — root cause analysis of the `dnsmasq_listen_addresses` fix
