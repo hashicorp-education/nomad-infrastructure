@@ -1,6 +1,6 @@
 # Plan: Local Mac testing with Terraform + Multipass
 
-**Status: Phase 0/1 implemented (`terraform/multipass/` workspace created, `terraform plan` verified clean). Phases 2/3 (Ansible deploy against real VMs) not yet run.**
+**Status: Phases 0-3 complete.** `terraform/multipass/` workspace built and applied (5 VMs running: 3 servers + 2 clients). `deploy_consul_nomad_sd.yaml` runs clean against `ansible/inventory.ini` (Terraform writes directly here, not a separate `inventory.multipass.ini` as originally planned in §1 — simpler, and there's no AWS inventory to collide with on a pure-local checkout). Consul + Nomad clusters are up with ACLs and TLS. See "Confirmed gotcha" under Open Risks below for a real failure mode hit during Phase 3 and its fix.
 
 Goal: let a developer on an Apple Silicon Mac stand up the same Nomad (+
 optionally Consul/Vault) cluster this repo builds on AWS, but on local
@@ -147,8 +147,8 @@ templated, so this resolves correctly to `false` only for
 |-------|------|--------|
 | 0 | Prereqs: `brew install --cask multipass`; confirm `multipass version`; confirm `terraform init` can fetch `larstobi/multipass` | **Done** (Multipass 1.16.3 already installed; `terraform init` fetched `larstobi/multipass` 1.4.3 cleanly) |
 | 1 | Build `terraform/multipass/` (§1, §2); `terraform apply`; confirm `multipass list` shows 5 running VMs and `ssh -i ~/.ssh/id_ed25519 ubuntu@<ip>` works manually | Workspace built, `terraform fmt`/`validate`/`plan` clean (7 resources to add: 5 VMs + cloud-init + inventory file). **`terraform apply` not yet run** — pending user go-ahead since it downloads a VM image and consumes real local resources |
-| 2 | Ansible connectivity smoke test: `ansible-playbook -i inventory.multipass.ini playbooks/common_setup.yaml` | Not started |
-| 3 | Run the chosen validation scenario end to end: `ansible-playbook -i inventory.multipass.ini deploy_consul_nomad_sd.yaml`; verify `consul members` (3 servers + 2 clients, all alive), `nomad server members` (3 servers, one Leader), `nomad node status` (2 clients, `ready`), and `consul catalog services` shows `nomad`/`nomad-client` | Not started |
+| 2 | Ansible connectivity smoke test: `ansible-playbook -i inventory.ini playbooks/common_setup.yaml` | **Done** |
+| 3 | Run the chosen validation scenario end to end: `ansible-playbook -i inventory.ini deploy_consul_nomad_sd.yaml` | **Done** — clean run, `failed=0` on all 5 hosts, ACL bootstrap + TLS complete. First attempt failed (see Open Risks §2, now "confirmed"); re-run after clearing the Ansible fact cache succeeded |
 | 4 (done) | Consul auto-join override (§3) — applied to `consul_servers.yaml`, `consul_clients.yaml`, `consul_dns_token.yaml` | **Applied and syntax-checked** |
 | 5 (optional) | Document teardown: `terraform destroy` in `terraform/multipass/`, plus `multipass delete --all --purge` as a manual escape hatch if state drifts | Documented in `terraform/multipass/README.md` |
 
@@ -161,11 +161,39 @@ These can't be fully resolved from reading code — they need a real `terraform 
 1. **Exact cloud-init syntax** the provider's `cloudinit_file` expects for
    appending an SSH key to the default `ubuntu` user (top-level
    `ssh_authorized_keys:` list vs. a full `users:` override). Needs a test run.
-2. **IP stability** — Multipass IPs are normally stable per-instance for the
-   VM's lifetime, but can change across a delete/recreate cycle. `terraform
-   apply` re-runs should be tested for whether the `ipv4` computed attribute
-   updates cleanly and whether the regenerated inventory + already-issued TLS
-   certs (SAN = old IP) need a re-run of the `tls` role.
+2. **IP stability — confirmed, and the real mechanism is worse than expected.**
+   Multipass VM IPs on this Mac shifted for all 5 VMs between an earlier
+   Ansible run and the Phase 3 validation run (no delete/recreate involved —
+   just DHCP lease churn, e.g. across a Mac sleep/wake or VM restart).
+   `ansible/inventory.ini` and `multipass list` both reflected the new IPs
+   correctly, but `consul agent` still crash-looped on all 3 servers with
+   `bind: cannot assign requested address` — `bind_addr`/`advertise_addr`/
+   `retry_join` in the rendered `/etc/consul.d/consul.hcl` held the *old*
+   IPs.
+
+   Root cause: `ansible.cfg` sets `gathering = smart` with
+   `fact_caching = jsonfile` (`/tmp/ansible_facts`, `fact_caching_timeout =
+   3600`). `consul_bind_addr` (ansible/roles/consul/defaults/main.yaml)
+   templates from `ansible_facts['default_ipv4']['address']`. Under `smart`
+   gathering, Ansible reuses a non-expired fact-cache entry instead of
+   re-gathering — even though the play sets `gather_facts: true` — so a
+   config render can silently bake in an IP from up to an hour ago. The
+   inventory file being correct is not enough; the fact cache has to be
+   fresh too.
+
+   **Fix applied:** `rm -rf /tmp/ansible_facts` (or `ansible-playbook
+   --flush-cache`) before re-running. After clearing the cache, the same
+   playbook re-ran clean with `failed=0` across all hosts.
+
+   **Operational takeaway:** any time there's been a gap between VM
+   boot/restart and the next Ansible run against this Multipass cluster,
+   flush the fact cache first — don't assume a bind/advertise/retry_join
+   failure means the inventory is stale; check `/tmp/ansible_facts` before
+   re-terraforming or re-launching VMs.
+   TLS cert SAN drift (certs issued for an old IP) was not observed this
+   time since the fix landed before TLS was re-issued, but remains an
+   open risk if the IP genuinely changes for good (not just cache staleness)
+   — the `tls` role would need a re-run in that case.
 3. **Memory headroom** — 4GB per client may be tight once Docker + Nomad +
    a demo job (e.g. Countdash) are all running; may need to bump if OOM is
    observed.

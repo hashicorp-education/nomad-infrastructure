@@ -41,18 +41,30 @@ Browser (your machine)
     │
     │  port 9002 (TCP, public internet)
     ▼
-EC2 instance running countdash-web task  ──► address = attr.unique.platform.aws.public-hostname
+EC2 instance running countdash-web task  ──► address = attr.unique.network.ip-address
     │
     │  port 9001 (TCP, VPC-internal)
     │  resolved via Consul DNS (.global) or Nomad template
     ▼
-EC2 instance running countdash-api task  ──► address = attr.unique.platform.aws.local-ipv4
+EC2 instance running countdash-api task  ──► address = attr.unique.network.ip-address
 ```
 
-Both tasks are registered with their respective addresses:
+Both tasks register `attr.unique.network.ip-address` — the platform-agnostic
+node attribute Nomad fingerprints on every host (AWS, Multipass, bare metal).
+This replaced the AWS-only `attr.unique.platform.aws.local-ipv4` /
+`attr.unique.platform.aws.public-hostname` attributes so these jobs also run
+on Multipass, which has no public/private network split.
 
-- `countdash-web` registers the EC2 **public hostname** so the browser can reach the dashboard directly on port `9002`.
-- `countdash-api` registers the EC2 **private IPv4** so inter-node traffic between the web container and the API stays within the VPC (port `9001`).
+**AWS caveat**: `attr.unique.network.ip-address` resolves to the EC2
+instance's **private** IPv4 on both tasks — there is no attribute that gives
+a public hostname/IP outside the AWS-specific `attr.unique.platform.aws.*`
+namespace. This doesn't affect actual reachability of the browser-facing port
+(port 9002 is still opened directly via the security group below, and a
+browser hits the instance's public IP/hostname directly — that traffic never
+goes through Consul/Nomad service discovery). It does mean `countdash-web`'s
+entry in the Consul/Nomad service catalog no longer shows an
+externally-usable address on AWS — get the instance's public IP/hostname from
+`terraform output` or the AWS console instead of from the service catalog.
 
 ### Security note
 
@@ -109,18 +121,25 @@ time with the `-var` flag. They are referenced elsewhere in the file with
 |----------|---------|---------|
 | `countdash-api-port` | `9001` | Static port bound by the API container |
 | `countdash-web-port` | `9002` | Static port bound by the web container |
+| `countdash-api-version` | `v3` | API image tag prefix. Combined with `${attr.cpu.arch}` at task-start time (see `config` block below) to select `hashicorpdev/counter-api:v3-amd64` or `v3-arm64` automatically |
+| `countdash-web-version` | `v3` | Web image tag prefix, same `${attr.cpu.arch}` mechanism as above |
 
 ---
 
 ### `job` block
 
 ```hcl
-job "countdash" { ... }
+job "countdash-consul-sd" { ... }
 ```
 
-The top-level `job` block names the job (`countdash`) and contains all groups,
-tasks, and configuration for the deployment. The job name is used by the Nomad
-scheduler and appears in the UI and CLI output.
+The top-level `job` block names the job and contains all groups, tasks, and
+configuration for the deployment. The job name is used by the Nomad scheduler
+and appears in the UI and CLI output. `countdash-consul-service-discovery.nomad.hcl`
+and `countdash-nomad-service-discovery.nomad.hcl` use distinct job names
+(`countdash-consul-sd` / `countdash-nomad-sd`) specifically so both can be
+deployed to the same cluster at once without one overwriting the other — they
+used to share the job name `countdash` until this was fixed, which meant
+running one silently replaced the other via an in-place job update.
 
 ---
 
@@ -186,7 +205,7 @@ service {
   name     = "countdash-api"
   provider = "consul"          # or "nomad"
   port     = "countdash-api"
-  address  = attr.unique.platform.aws.local-ipv4
+  address  = attr.unique.network.ip-address
   ...
 }
 ```
@@ -199,7 +218,7 @@ services can discover it.
 | `name` | Name under which the service is registered in the catalog |
 | `provider` | `"consul"` to register with Consul; `"nomad"` to register with Nomad's built-in catalog |
 | `port` | References the named port from the `network` block |
-| `address` | Overrides the registered IP/hostname. `attr.unique.platform.aws.local-ipv4` is a Nomad runtime attribute that resolves to the EC2 instance's private IPv4. The web service uses `attr.unique.platform.aws.public-hostname` so the dashboard is reachable from outside the VPC |
+| `address` | Overrides the registered IP/hostname. `attr.unique.network.ip-address` is the platform-agnostic node attribute Nomad fingerprints on every host — resolves to the private IPv4 on AWS, the single bridged-network IP on Multipass. Both `countdash-api` and `countdash-web` use the same attribute (see the AWS caveat under "How traffic flows" above for what this means for the web tier specifically on AWS) |
 
 **Provider differences**
 
@@ -286,7 +305,7 @@ in `nomad alloc inspect` output and can be read from within the task via the
 
 ```hcl
 config {
-  image          = "hashicorpdev/counter-api:v3"
+  image          = "hashicorpdev/counter-api:${var.countdash-api-version}-${attr.cpu.arch}"
   ports          = ["countdash-api"]
   auth_soft_fail = true
   mount {
@@ -305,6 +324,20 @@ The `config` block is driver-specific. For the Docker driver:
 | `ports` | Names of ports (from the `network` block) to expose in the container |
 | `auth_soft_fail` | When `true`, Nomad does not fail the task if Docker registry authentication fails. Used on the web task because the image is public but the cluster may not have registry credentials configured |
 | `mount` | Bind-mounts a file or directory from the host (or Nomad's task working directory) into the container. `source = "local/..."` refers to the Nomad task's `local/` scratch directory, which is populated by `template` blocks |
+
+**Multi-architecture image selection**: `hashicorpdev/counter-api:v3` and
+`hashicorpdev/counter-dashboard:v3` are amd64-only images, not multi-arch
+manifests — they don't run natively on arm64 hosts (e.g. Apple Silicon
+Multipass VMs). HashiCorp separately publishes `v3-amd64` / `v3-arm64` tags
+for both. `${attr.cpu.arch}` is a Nomad runtime node attribute that gets
+interpolated into `image` after the scheduler places the allocation on a
+specific node, resolving to `amd64` or `arm64` — combined with the
+`countdash-api-version`/`countdash-web-version` variables (interpolated
+separately, at job-submission time), this makes the job automatically pull
+the correct architecture's image on whichever node it lands on, without
+needing per-architecture task groups. This is not explicitly documented in
+Nomad's own docs for the `image` field specifically — confirmed by testing
+directly against a running cluster.
 
 ---
 
