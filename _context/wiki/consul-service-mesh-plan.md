@@ -282,6 +282,13 @@ repo's `04.intentions.consul.sh`).
 
 ## 6. Networking readiness (CNI, bridge mode)
 
+> **Superseded for Countdash, kept as the historical record of the decision
+> made at the time.** The `consul-cni` gap below was closed and
+> `transparent_proxy` is now the **default** mesh mode for Countdash — see
+> [transparent-proxy-enablement-plan.md](transparent-proxy-enablement-plan.md).
+> HashiCups' mesh job is unaffected by that change and still uses explicit
+> `upstreams` only, so the reasoning below still applies there.
+
 - CNI plugins are **already installed** on Nomad clients via the existing
   `cni` role (`cni_plugins_version: 1.9.1`, pinned in `group_vars/all.yaml`).
   No new role or version bump needed — bridge networking already works today

@@ -1,16 +1,21 @@
-# Countdash — Consul service mesh, transparent proxy variant
+# Countdash — Consul service mesh, transparent proxy variant (default mesh
+# mode for Countdash as of this file's "make it default" follow-up)
 #
-# Live-verified end-to-end on a real AWS cluster (Consul v1.19.1, Nomad
+# Live-verified end-to-end on a real AWS cluster (Consul v2.0.1, Nomad
 # v2.0.4) — see _context/wiki/transparent-proxy-enablement-plan.md for the
-# full rollout, including four real bugs found and fixed along the way.
+# full rollout, including four real bugs found and fixed along the way, plus
+# a later follow-up that automated away the two manual steps this header
+# used to document (Nomad client restart, gateway ACL policy) — both are
+# now handled automatically by consul_nomad_service_mesh.yaml.
 #
 # Same app and same mesh (network.mode = "bridge", Connect sidecars) as
-# countdash-upstreams.nomad.hcl, but the countdash-web ->
-# countdash-api hop uses Consul's transparent_proxy instead of an explicit
-# `upstreams` block: countdash-web calls Consul's virtual-IP DNS name and
-# the Envoy sidecar intercepts the connection via iptables rules installed
-# by the consul-cni CNI plugin, rather than countdash-web calling a fixed
-# 127.0.0.1 bind port.
+# countdash-upstreams.nomad.hcl (still available as the explicit-upstreams
+# alternative — see nomad-jobs/consul-mesh/README.md Step 7b), but the
+# countdash-web -> countdash-api hop uses Consul's transparent_proxy instead
+# of an explicit `upstreams` block: countdash-web calls Consul's virtual-IP
+# DNS name and the Envoy sidecar intercepts the connection via iptables
+# rules installed by the consul-cni CNI plugin, rather than countdash-web
+# calling a fixed 127.0.0.1 bind port.
 #
 # This is a separate file, not a modified
 # countdash-upstreams.nomad.hcl, per this repo's
@@ -21,19 +26,19 @@
 # _context/wiki/countdash-job-id-collision-and-multiarch.md.
 #
 # Prerequisites beyond the base countdash-upstreams.nomad.hcl
-# mesh setup (Consul Connect enabled, ingress namespace, API Gateway):
+# mesh setup (Consul Connect enabled, ingress namespace, API Gateway) — both
+# handled automatically by running consul_nomad_service_mesh.yaml, no manual
+# steps required:
 #   1. consul-cni plugin installed on Nomad clients — this is NOT part of
-#      the base Option E rollout. Requires re-running
-#      consul_nomad_service_mesh.yaml Play 2 with consul_cni_enabled: true
-#      (already the default in that play as of this file's addition).
-#   2. IMPORTANT, confirmed live: if Nomad was already running on the
-#      clients before step 1, it will NOT schedule this job until every
-#      Nomad client is manually restarted (`systemctl restart nomad`) —
-#      Nomad only fingerprints /opt/cni/bin for new plugins at agent
-#      startup, not on a timer. Without this, placement fails with
-#      `Constraint "${attr.plugins.cni.version.consul-cni} semver >= 1.4.2":
-#      N nodes excluded by filter` even though the binary is present.
-#   3. Same service-defaults + intentions as the non-transparent variant
+#      the base Option E rollout. Requires consul_nomad_service_mesh.yaml
+#      Play 2 (consul_cni_enabled: true is already the default there). If a
+#      new consul-cni binary is actually installed on a client where Nomad
+#      is already running, a play-level Ansible handler restarts Nomad on
+#      that client automatically — Nomad only fingerprints /opt/cni/bin for
+#      new plugins at agent startup, not on a timer, so this used to require
+#      a manual `systemctl restart nomad`; live-reverified it no longer
+#      does.
+#   2. Same service-defaults + intentions as the non-transparent variant
 #      (countdash-web -> countdash-api, api-gateway -> countdash-web) —
 #      intentions authorize by service name regardless of upstream mode, so
 #      no new Consul config entries are needed if the base mesh job specs

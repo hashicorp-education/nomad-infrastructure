@@ -702,8 +702,8 @@ itself — those are an application-level concern applied separately. Follow
 full deploy order (service-defaults → intentions → TLS cert → gateway
 listener → http-route → mesh app job → API Gateway job), which deploys:
 
-- [`nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl`](nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl) and/or
-  [`nomad-jobs/consul-mesh/hashicups-consul-service-mesh.nomad.hcl`](nomad-jobs/consul-mesh/hashicups-consul-service-mesh.nomad.hcl) — the two demo apps, mesh-enabled with Envoy sidecars and explicit `upstreams`
+- [`nomad-jobs/consul-mesh/countdash-transparent-proxy.nomad.hcl`](nomad-jobs/consul-mesh/countdash-transparent-proxy.nomad.hcl) and/or
+  [`nomad-jobs/consul-mesh/hashicups-consul-service-mesh.nomad.hcl`](nomad-jobs/consul-mesh/hashicups-consul-service-mesh.nomad.hcl) — the two demo apps, mesh-enabled with Envoy sidecars. Countdash defaults to Consul's `transparent_proxy` mode (see below); HashiCups still uses explicit `upstreams`.
 - [`nomad-jobs/consul-mesh/api-gateway.nomad.hcl`](nomad-jobs/consul-mesh/api-gateway.nomad.hcl) — an Envoy-based Consul API Gateway in the `ingress` namespace, terminating HTTPS on port 8447 and routing to whichever demo app's `http-route` is currently applied
 
 > **Note:** only one app's `http-route` can be active at a time — both
@@ -715,28 +715,29 @@ listener → http-route → mesh app job → API Gateway job), which deploys:
 If the process encounters issues, refer to the [Troubleshooting section](#troubleshooting) and
 [_context/wiki/api-gateway-envoy-bootstrap-troubleshooting.md](_context/wiki/api-gateway-envoy-bootstrap-troubleshooting.md).
 
-**Transparent proxy variant (optional, live-verified):** as an alternative
-to `countdash-upstreams.nomad.hcl`'s explicit `upstreams` block,
-[`nomad-jobs/consul-mesh/countdash-transparent-proxy.nomad.hcl`](nomad-jobs/consul-mesh/countdash-transparent-proxy.nomad.hcl)
-uses Consul's `transparent_proxy` mode instead — see
+**Why transparent proxy is the default for Countdash (live-verified):**
+Consul's `transparent_proxy` mode needs no app-side rewiring — countdash-web
+calls Consul's real DNS name and Envoy intercepts the connection — instead
+of an explicit `upstreams` block bound to a fixed loopback port. See
 [_context/wiki/transparent-proxy-vs-upstreams.md](_context/wiki/transparent-proxy-vs-upstreams.md)
-for the tradeoffs. Requires the separate `consul-cni` CNI plugin (installed
-by `consul_nomad_service_mesh.yaml` via `consul_cni_enabled: true`, already
-the default) **and**, if Nomad was already running on the clients
-beforehand, a manual restart of the Nomad client service on every client —
-confirmed live that Nomad only fingerprints new `/opt/cni/bin` plugins at
-agent startup:
-
-```bash
-ansible clients -i inventory.ini -m systemd -a "name=nomad state=restarted" -b
-nomad job run nomad-jobs/consul-mesh/countdash-transparent-proxy.nomad.hcl
-```
-
+for the tradeoffs. `consul_nomad_service_mesh.yaml` (run above) already
+installs the required `consul-cni` CNI plugin and applies the Nomad ACL
+policy the API Gateway job needs, so no separate manual steps remain.
 Full rollout, four real bugs found and fixed along the way (a Consul
 DNS-ACL-token regression, the wrong DNS name convention for
 transparent-proxy interception, and two stale-catalog-entry cleanups), and
 verification details in
 [_context/wiki/transparent-proxy-enablement-plan.md](_context/wiki/transparent-proxy-enablement-plan.md).
+
+**Alternative: explicit `upstreams` variant.**
+[`nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl`](nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl)
+uses an explicit `upstreams` block instead — no `consul-cni` dependency,
+every dependency spelled out in the job spec. Can run alongside the
+transparent-proxy job (independent job IDs):
+
+```bash
+nomad job run nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl
+```
 
 To remove what Ansible deployed, first stop the mesh app and gateway jobs (see
 the Clean up section of [nomad-jobs/consul-mesh/README.md](nomad-jobs/consul-mesh/README.md)),

@@ -19,7 +19,7 @@
 nomad_binary_version: "2.0.4"
 
 # HashiCorp Consul — https://releases.hashicorp.com/consul
-consul_binary_version: "2.0.1"
+consul_binary_version: "2.0.2"
 # Consul datacenter name — used in consul.hcl and in Consul DNS names:
 #   <service>.service.<datacenter>.<domain>
 consul_datacenter: "dc1"

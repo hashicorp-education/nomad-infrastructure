@@ -64,7 +64,7 @@ job "api-gateway" {
       }
 
       config {
-        image      = "hashicorp/consul:2.0.1"
+        image      = "hashicorp/consul:2.0.2"
         entrypoint = ["/bin/sh", "-c"]
         args = [
           "cp \"$(command -v consul)\" /alloc/consul && chmod +x /alloc/consul",

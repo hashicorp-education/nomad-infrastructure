@@ -1,7 +1,10 @@
 # Plan: Enable Consul Connect transparent proxy support (2026-07-21)
 
-**Status: implemented and verified end-to-end on the live AWS cluster.**
-Three real bugs were found and fixed along the way — none in the original
+**Status: implemented, made the default mesh mode for Countdash, and fully
+live-verified — including automating away both manual steps this page
+originally documented.** See "Made the default (follow-up automation,
+live-verified)" below for what changed and how it was re-verified. Four real
+bugs were found and fixed in the original rollout — none in the original
 plan's scope, all only surfaced because transparent proxy actually depends
 on DNS resolution working correctly, unlike the `upstreams` variant. See
 "Bugs found during live rollout" below. Follow-on to
@@ -278,19 +281,80 @@ policies reset. Worth a follow-up cross-reference in
 [api-gateway-envoy-bootstrap-troubleshooting.md](api-gateway-envoy-bootstrap-troubleshooting.md)
 as a fifth bootstrap issue.
 
-## Follow-ups
+## Made the default (follow-up automation, live-verified — 2026-07-21)
 
-- Automate the Bug 1 Nomad-client-restart requirement (conditional handler
-  tied to the `cni` role's consul-cni install task reporting `changed`)
-  instead of leaving it as a documented manual step.
-- Add the Bug 4 workload-associated ACL policy to
-  `ansible/playbooks/consul_nomad_service_mesh.yaml` Play 4 (alongside the
-  existing `ingress` namespace + gateway binding-rule creation), so
-  rebuilding the API Gateway job doesn't require a manual `nomad acl policy
-  apply` every time.
-- `DEPLOY_CLUSTER_GUIDE.md`'s Option E section now has a short "Transparent
-  proxy variant" subsection (see below) documenting the job spec and its
-  one extra prerequisite (`consul-cni` + the Bug 1 client restart).
+Both follow-ups originally listed here were implemented and live-verified
+against the real AWS cluster in a second pass the same day:
+
+1. **Bug 1 (Nomad-client-restart) automated.** Added
+   `notify: "Restart nomad on clients (consul-cni installed)"` to the
+   "Extract consul-cni plugin" task in
+   `ansible/roles/cni/tasks/install_consul_cni.yaml`, and a matching
+   play-level `handlers:` block in `consul_nomad_service_mesh.yaml` Play 2
+   (deliberately not in the `cni` role itself — `nomad_clients.yaml`, the
+   role's only other caller, never sets `consul_cni_enabled`, so it never
+   needs this side effect). Fires only when a new binary is actually
+   written, so it's a no-op on every idempotent re-run.
+2. **Bug 5 (missing gateway ACL policy) automated.** Added a task to Play 4
+   applying the exact policy documented in
+   [api-gateway-envoy-bootstrap-troubleshooting.md](api-gateway-envoy-bootstrap-troubleshooting.md)
+   issue 5, right after the existing `ingress` namespace creation task.
+   `nomad acl policy apply` is create-or-update, so this is idempotent too.
+3. **Docs swapped**: `nomad-jobs/consul-mesh/README.md` now presents
+   `countdash-transparent-proxy.nomad.hcl` as Step 7 (primary), with
+   `countdash-upstreams.nomad.hcl` demoted to Step 7b ("optional, no
+   consul-cni dependency") — not retired, per explicit scope decision to
+   keep both job specs available. `DEPLOY_CLUSTER_GUIDE.md` Option E and
+   `transparent-proxy-vs-upstreams.md` updated to match. Scope is
+   **Countdash only** — HashiCups' mesh job is untouched and still
+   `upstreams`-only, an explicit decision to avoid new, unverified work
+   beyond "making the existing default default."
+
+**Live re-verification** (real 3-server/2-client AWS cluster): deleted
+`/opt/cni/bin/consul-cni` on both clients and deleted the
+`api-gateway-variables` Nomad ACL policy, then ran
+`consul_nomad_service_mesh.yaml` once with no other manual commands in
+between. Confirmed:
+
+- `nomad node status -verbose` showed `plugins.cni.version.consul-cni =
+  v1.6.2` on both clients with **no manual restart** — the handler fired.
+- `nomad acl policy list` showed `api-gateway-variables` recreated
+  automatically — no manual `nomad acl policy apply`.
+- `countdash-transparent-proxy.nomad.hcl` placed and reached healthy on the
+  first attempt.
+- Rebuilding the API Gateway job's `gateway` task resolved its Nomad
+  Variable template with zero manual ACL steps.
+
+**A new, unrelated bug surfaced during this same re-verification pass** and
+briefly blocked the final functional check: rewriting the gateway's
+`gateway-listener.hcl`/`http-route-countdash.hcl` config entries from this
+session's local machine produced a persistent `503`/`no_cluster` Envoy
+error — an RDS/CDS cluster-name mismatch that survived both a task restart
+and a full config-entry delete+recreate. Root cause: the local `consul` CLI
+had been silently upgraded by Homebrew mid-session to a version newer than
+the cluster's actual servers, and the version-skewed CLI encoded the config
+entries in a way that desynced the API Gateway controller's generated route
+vs. cluster names. Fixed by writing the same config entries via SSH using
+the **server's own** version-matched `consul` binary instead. Full
+diagnostic writeup and fix: issue 6 in
+[api-gateway-envoy-bootstrap-troubleshooting.md](api-gateway-envoy-bootstrap-troubleshooting.md).
+Not a transparent-proxy bug and not introduced by any change in this
+plan — a pre-existing risk (local CLI drifting from server version over a
+long session) that happened to surface here.
+
+After that fix, final verification passed cleanly: 10/10 `curl -sk
+https://<client-ip>:8447/` requests returned `HTTP 200`; the negative
+intention-removal check (`consul intention delete api-gateway
+countdash-web`) produced `HTTP 403` (with some propagation jitter — a few
+in-flight requests briefly still returned `200` before the RBAC update
+fully propagated to Envoy, then settled to consistent `403`), and restoring
+the intention (`consul intention create -allow api-gateway countdash-web`)
+returned traffic to a steady 10/10 `HTTP 200`.
+
+**Net result: running `consul_nomad_service_mesh.yaml` (Option E) now
+leaves the cluster able to schedule the transparent-proxy job and rebuild
+the API Gateway with zero manual steps**, and the docs present
+transparent proxy as Countdash's primary/recommended mesh mode.
 
 ## Related
 

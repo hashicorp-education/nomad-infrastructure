@@ -1,13 +1,15 @@
 # Consul API Gateway: Envoy bootstrap failures and stale mesh registrations
 
-Four linked issues found while getting `nomad-jobs/consul-mesh/api-gateway.nomad.hcl`
+Six linked issues found while getting `nomad-jobs/consul-mesh/api-gateway.nomad.hcl`
 (rollout step 6 of [consul-service-mesh-plan.md](consul-service-mesh-plan.md))
 to a genuinely healthy, end-to-end-working state — not just "deployment
 successful" in Nomad, but an actual HTTPS request proxied through to a mesh
 backend. The first three are gateway job bugs; the fourth is a Consul catalog
 hygiene issue unrelated to the gateway itself, included here because its
 symptom (503 from a healthy-looking gateway) is easy to misattribute back to
-the gateway.
+the gateway; the fifth is a missing Nomad ACL policy; the sixth is a local
+CLI/server version-skew issue that reproduces the exact same 503 symptom as
+the fourth but with a completely different root cause and fix.
 
 ## 1. `hashicorp/consul` images do not bundle `envoy`
 
@@ -234,14 +236,83 @@ the policy (Nomad's variable-read check is evaluated per-request against
 the task's current workload identity claims, not baked in at task start).
 
 **Takeaway:** this is a one-time **cluster ACL state** fact, not something
-`api-gateway.nomad.hcl` or any Ansible playbook currently creates — it will
-recur for anyone rebuilding the gateway job on a cluster that's had its
-Nomad ACL policies reset (e.g. after `nomad_acl_bootstrap.yaml` re-runs, or
-a fresh cluster). Not yet folded into
+`api-gateway.nomad.hcl` creates itself. It's since been folded into
 `ansible/playbooks/consul_nomad_service_mesh.yaml` Play 4 (which already
-creates the `ingress` namespace and the Consul-side API Gateway binding
-rule) — a natural place to add it as a follow-up, so this doesn't need
-rediscovering.
+created the `ingress` namespace and the Consul-side API Gateway binding
+rule, and now also applies this policy) as part of
+[transparent-proxy-enablement-plan.md](transparent-proxy-enablement-plan.md)'s
+"make transparent proxy the default" work — live-reverified by deleting the
+policy and re-running the playbook, which recreated it automatically with no
+manual `nomad acl policy apply` needed.
+
+## 6. Same 503 symptom as issue 4, different root cause: local `consul` CLI/server version skew
+
+Hit while re-verifying the gateway from scratch (deleting and rewriting
+`gateway-listener.hcl` / `http-route-countdash.hcl` via `consul config
+write`) during the transparent-proxy-default automation pass. Symptom looked
+identical to issue 4 (503, otherwise-healthy-looking gateway) but every
+diagnostic that ruled things out for issue 4 also ruled them out here:
+intentions allowed, config entries "Accepted"/"Bound", exactly one healthy
+`countdash-web` catalog registration (no duplicates), Consul server logs
+showed zero errors or warnings. A `nomad job restart -task gateway` did
+**not** fix it, nor did deleting and rewriting the config entries again —
+both produced the exact same broken state deterministically.
+
+**Diagnosis:** Envoy's admin API (`/config_dump?resource=dynamic_route_configs`
+vs. `/clusters`) showed a genuine RDS/CDS name mismatch — the CDS cluster was
+named `1a47f6e1~countdash-web.default.dc1.internal.<trust-domain>.consul`
+(hash-prefixed, healthy, one endpoint), but the RDS route's target cluster
+was `countdash-web.default.dc1.internal.<trust-domain>.consul` — the same
+name **without** the hash prefix, so every request failed Envoy's cluster
+lookup (`no_cluster` stat incrementing on every request). Since this
+survived a clean config-entry recreate, it wasn't a one-off xDS sync race —
+something was consistently generating mismatched xDS resources.
+
+**Root cause:** `consul version` locally reported `v2.0.2`, while the
+cluster's actual Consul agents run `v2.0.1` (confirmed via `ssh
+<server> consul version`, since the *server's own* installed CLI is
+guaranteed to match the agent it's colocated with). Homebrew had silently
+upgraded the local `consul` CLI mid-session. The mismatched local CLI
+encodes `http-route` config entries with newer schema fields (e.g. an
+explicit `Filters.ExtProc`/`Filters.ExtAuthz` structure) — writing directly
+confirmed this: the same file that had applied cleanly earlier in the
+session started failing with `invalid config key "Rules[0].Filters.ExtProc"`
+once the local CLI silently became newer than the server. Even where the
+write nominally succeeded (no rejected keys), the encoding skew was still
+enough to desync how the server's API Gateway controller derived the RDS
+route name from the CDS cluster name it generated for the same config.
+
+**Fix:** write config entries using a `consul` binary that matches the
+**server's** version, not whatever happens to be on the local machine's
+`PATH`. Easiest way: `scp` the `.hcl` file to a server and run `consul
+config write` there over SSH, using the server's own locally-installed
+binary and `127.0.0.1` as the address:
+
+```bash
+scp -i ssh_key.pem gateway-listener.hcl http-route-countdash.hcl \
+  ubuntu@<server-ip>:/tmp/
+ssh -i ssh_key.pem ubuntu@<server-ip> '
+  export CONSUL_HTTP_ADDR=https://127.0.0.1:8443
+  export CONSUL_HTTP_TOKEN=$(cat /tmp/consul-bootstrap-secret-id.txt)
+  export CONSUL_CACERT=/tmp/ca.pem
+  consul config write /tmp/gateway-listener.hcl
+  consul config write /tmp/http-route-countdash.hcl
+'
+```
+
+Rewriting the same two config entries this way (byte-identical `.hcl`
+content, only the CLI binary changed) immediately fixed the route/cluster
+mismatch — 10/10 subsequent requests returned `HTTP 200`.
+
+**Takeaway:** don't assume a local CLI's reported version matches a remote
+cluster's actual version, especially in a long session — package managers
+can upgrade a binary out from under you mid-session with no prompt. When a
+`consul config write` (or `nomad job run`, etc.) behaves inconsistently
+with no server-side error explaining why, check `consul version` (or
+equivalent) against the actual server/agent version before assuming the
+config content itself is wrong. This is a general risk for any long-lived
+session using local CLI tools against a persistent remote cluster, not
+specific to API Gateway.
 
 ## Useful commands referenced above
 

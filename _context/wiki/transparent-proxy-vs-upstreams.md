@@ -4,11 +4,16 @@ Q&A captured from a discussion about `nomad-jobs/consul-mesh/countdash-upstreams
 (named `countdash-consul-service-mesh.nomad.hcl`, then
 `countdash-consul-service-mesh-upstreams.nomad.hcl`, at the time this page
 was first written — renamed twice since) and
-`hashicups-consul-service-mesh.nomad.hcl`, both of which use explicit
-`upstreams` blocks today (a deliberate choice — see
+`hashicups-consul-service-mesh.nomad.hcl`, both of which used explicit
+`upstreams` blocks at the time (a deliberate choice — see
 [consul-service-mesh-plan.md §6](consul-service-mesh-plan.md#6-networking-readiness-cni-bridge-mode)).
-Captured here since it's genuinely useful background for anyone evaluating
-whether to switch, without re-deriving it. See also the
+**Since superseded for Countdash**: `transparent_proxy` is now the default
+mesh mode for Countdash (`countdash-transparent-proxy.nomad.hcl`), per
+[transparent-proxy-enablement-plan.md](transparent-proxy-enablement-plan.md) —
+`countdash-upstreams.nomad.hcl` remains available as the documented
+alternative. HashiCups' mesh job is unaffected and still uses `upstreams`
+only. Captured here since it's genuinely useful background for anyone
+evaluating whether to switch, without re-deriving it. See also the
 [Nomad service mesh tutorial](https://developer.hashicorp.com/nomad/tutorials/integrate-consul/consul-service-mesh)
 and [Consul's transparent proxy docs](https://developer.hashicorp.com/consul/docs/connect/proxy/transparent-proxy/vm).
 
@@ -43,12 +48,13 @@ rather than relying on implicit/auto-discovery behavior (Consul DNS names
 are already fully spelled out in the service-discovery job specs, for the
 same reason).
 
-**Update:** the `consul-cni` gap described below has since been closed — see
+**Update:** the `consul-cni` gap described below has since been closed and
+transparent proxy is now the **default** mesh mode for Countdash — see
 [transparent-proxy-enablement-plan.md](transparent-proxy-enablement-plan.md)
-for what shipped (implemented, not yet live-verified) and
-`nomad-jobs/consul-mesh/countdash-transparent-proxy.nomad.hcl` for the new
-job spec using `transparent_proxy {}`. The explanation below of *why* it
-didn't work before that change is still accurate background.
+for what shipped and was live-verified, including the two manual steps
+(Nomad client restart, gateway ACL policy) that were later automated too.
+The explanation below of *why* it didn't work before that change is still
+accurate background.
 
 ## Why the mesh job specs couldn't use `transparent_proxy` before this
 
