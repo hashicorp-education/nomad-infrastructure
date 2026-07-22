@@ -79,6 +79,14 @@ client {
     use_client_consul_token = true
   }
 {% endif %}
+{% if nomad_client_meta %}
+
+  meta {
+{% for k, v in nomad_client_meta.items() %}
+    {{ k }} = "{{ v }}"
+{% endfor %}
+  }
+{% endif %}
 }
 {% endif %}
 

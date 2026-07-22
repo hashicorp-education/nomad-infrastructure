@@ -7,7 +7,17 @@ variable "countdash-web-port" {
   default = 9002
 }
 
-job "countdash-mesh" {
+variable "countdash-api-version" {
+  description = "Countdash API image tag prefix. The CPU architecture suffix (amd64/arm64) is appended automatically at task-start time via $${attr.cpu.arch} interpolation, matching HashiCorp's published hashicorpdev/counter-api:v3-amd64 / v3-arm64 tags."
+  default = "v3"
+}
+
+variable "countdash-web-version" {
+  description = "Countdash web image tag prefix. The CPU architecture suffix (amd64/arm64) is appended automatically at task-start time via $${attr.cpu.arch} interpolation, matching HashiCorp's published hashicorpdev/counter-dashboard:v3-amd64 / v3-arm64 tags."
+  default = "v3"
+}
+
+job "countdash-mesh-upstreams" {
 
   group "countdash-api" {
     count = 1
@@ -48,7 +58,7 @@ job "countdash-mesh" {
       }
 
       config {
-        image = "hashicorpdev/counter-api:v3"
+        image = "hashicorpdev/counter-api:${var.countdash-api-version}-${attr.cpu.arch}"
         mount {
           type   = "bind"
           source = "local/application.properties"
@@ -114,7 +124,7 @@ job "countdash-mesh" {
       }
 
       config {
-        image          = "hashicorpdev/counter-dashboard:v3"
+        image          = "hashicorpdev/counter-dashboard:${var.countdash-web-version}-${attr.cpu.arch}"
         auth_soft_fail = true
       }
     }

@@ -282,6 +282,13 @@ repo's `04.intentions.consul.sh`).
 
 ## 6. Networking readiness (CNI, bridge mode)
 
+> **Superseded for Countdash, kept as the historical record of the decision
+> made at the time.** The `consul-cni` gap below was closed and
+> `transparent_proxy` is now the **default** mesh mode for Countdash — see
+> [transparent-proxy-enablement-plan.md](transparent-proxy-enablement-plan.md).
+> HashiCups' mesh job is unaffected by that change and still uses explicit
+> `upstreams` only, so the reasoning below still applies there.
+
 - CNI plugins are **already installed** on Nomad clients via the existing
   `cni` role (`cni_plugins_version: 1.9.1`, pinned in `group_vars/all.yaml`).
   No new role or version bump needed — bridge networking already works today
@@ -314,8 +321,8 @@ service-discovery job specs remain valid and unmodified.
 
 | File (new) | Purpose |
 |---|---|
-| `nomad-jobs/countdash/countdash-consul-service-mesh.nomad.hcl` | Countdash with `network.mode = bridge`, `connect.sidecar_service` on both groups, explicit `upstreams` for `countdash-web` → `countdash-api` |
-| `nomad-jobs/hashicups/hashicups-consul-service-mesh.nomad.hcl` | HashiCups with `network.mode = bridge` on all 6 groups, sidecars, explicit `upstreams` per the dependency table in `nomad-jobs/hashicups/README.md` |
+| `nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl` | Countdash with `network.mode = bridge`, `connect.sidecar_service` on both groups, explicit `upstreams` for `countdash-web` → `countdash-api` |
+| `nomad-jobs/consul-mesh/hashicups-consul-service-mesh.nomad.hcl` | HashiCups with `network.mode = bridge` on all 6 groups, sidecars, explicit `upstreams` per the dependency table in `nomad-jobs/consul-sd/README-hashicups.md` |
 | `nomad-jobs/consul-mesh/api-gateway.nomad.hcl` (new directory) | Envoy-based Consul API Gateway job in the `ingress` namespace, using workload identity (`identity { name = "consul_default" }`) to bootstrap against Consul — modeled on the `consul-api-gateway-on-nomad` reference pattern |
 | `nomad-jobs/consul-mesh/gateway-listener.hcl` | Consul `api-gateway` config entry: HTTPS listener on 8447 |
 | `nomad-jobs/consul-mesh/inline-certificate.hcl` | Self-signed cert/key for the gateway's TLS listener (`consul config write`) |
@@ -388,7 +395,7 @@ image tag/version, which is out of scope for this pass.
    Nomad gRPC-TLS config + `ingress` namespace + gateway binding rule).
 3. Verify `consul.connect = true` on all Nomad clients.
 4. Apply `service-defaults` config entries for all mesh services.
-5. Deploy `countdash-consul-service-mesh.nomad.hcl`, apply its two
+5. Deploy `countdash-upstreams.nomad.hcl`, apply its two
    intentions, verify end-to-end.
 6. Deploy the API Gateway job + listener/http-route/cert config entries,
    apply gateway intentions, verify browser access via port 8447. **Done —
@@ -413,8 +420,8 @@ image tag/version, which is out of scope for this pass.
    Option E deployment section (mirroring Options A–D) in
    [DEPLOY_CLUSTER_GUIDE.md](../../DEPLOY_CLUSTER_GUIDE.md); added mesh-variant
    cross-references to
-   [nomad-jobs/countdash/README.md](../../nomad-jobs/countdash/README.md) and
-   [nomad-jobs/hashicups/README.md](../../nomad-jobs/hashicups/README.md).
+   [nomad-jobs/consul-sd/README.md](../../nomad-jobs/consul-sd/README.md) and
+   [nomad-jobs/consul-sd/README-hashicups.md](../../nomad-jobs/consul-sd/README-hashicups.md).
 
 All 9 rollout steps (0–8) are now complete and verified against a live AWS
 cluster. Both demo apps (Countdash and HashiCups) work end-to-end through the
@@ -457,4 +464,4 @@ surviving a stopped job) that is easy to misattribute back to the gateway.
 - [tls-enabled-by-default-plan.md](tls-enabled-by-default-plan.md) — shared CA this plan reuses for the gateway's Consul trust
 - [DEPLOY_CLUSTER_GUIDE.md](../../DEPLOY_CLUSTER_GUIDE.md) — where Option E will be documented once implemented
 - [ansible/playbooks/consul_nomad_workload_identity.yaml](../../ansible/playbooks/consul_nomad_workload_identity.yaml) — existing JWT auth method this plan reuses
-- [nomad-jobs/hashicups/README.md](../../nomad-jobs/hashicups/README.md) — existing traffic-flow diagram this plan's mesh version extends
+- [nomad-jobs/consul-sd/README-hashicups.md](../../nomad-jobs/consul-sd/README-hashicups.md) — existing traffic-flow diagram this plan's mesh version extends

@@ -12,6 +12,16 @@
   ansible.builtin.import_tasks: install.yaml
   when: not cni_plugins_dir_stat.stat.exists
 
+- name: Check if consul-cni plugin exists
+  ansible.builtin.stat:
+    path: "{{ cni_plugins_path }}/consul-cni"
+  register: consul_cni_stat
+  when: consul_cni_enabled | default(false)
+
+- name: Install consul-cni plugin
+  ansible.builtin.import_tasks: install_consul_cni.yaml
+  when: consul_cni_enabled | default(false) and not consul_cni_stat.stat.exists
+
 - name: Write CNI configuration files
   become: true
   ansible.builtin.copy:

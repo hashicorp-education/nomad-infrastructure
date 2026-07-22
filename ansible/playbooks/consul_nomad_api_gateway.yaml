@@ -8,7 +8,16 @@
 # self-signed TLS cert for the gateway's HTTPS listener, applies the
 # api-gateway + http-route (countdash) config entries, stores the Consul CA
 # cert as a Nomad Variable, and runs the api-gateway Nomad job in the
-# `ingress` namespace. Also opens port 8447 in the AWS security group.
+# `ingress` namespace.
+#
+# The gateway job is constrained to the dedicated public ingress client
+# (meta.nodeRole = "ingress") — see
+# _context/wiki/dedicated-ingress-node-plan.md. Port 8447 is opened
+# unconditionally on that node's security group by Terraform
+# (aws_security_group.ingress_sg in terraform/aws/network.tf), not by this
+# playbook — there's deliberately no "open port 8447" step here anymore,
+# since opening it on every client (the old behavior) would defeat the
+# point of having a dedicated ingress node.
 #
 # This automates the manual steps documented in
 # nomad-jobs/consul-mesh/README.md (steps 1-6 and 8). It does NOT deploy the
@@ -17,23 +26,18 @@
 #
 # Prerequisites (all must be complete before running this playbook):
 #   1. consul_nomad_service_mesh.yaml                      — Consul Connect + ingress namespace + gateway binding rule
-#   2. countdash-consul-service-mesh.nomad.hcl deployed     — nomad job run nomad-jobs/countdash/countdash-consul-service-mesh.nomad.hcl
+#   2. countdash-upstreams.nomad.hcl deployed     — nomad job run nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl
 #      and healthy (nomad job status countdash-mesh shows Healthy=1 for both groups)
+#   3. terraform apply already ran with the dedicated ingress client present
+#      (terraform/aws/terraform.tfvars ingress_client_count >= 1) and
+#      inventory.ini regenerated from it.
 #
 # Usage:
 #   ansible-playbook -i inventory.ini playbooks/consul_nomad_api_gateway.yaml
 #
 # After this playbook completes, verify:
-#   curl -k https://<client-public-ip>:8447/
-#   (the playbook prints per-node reachability results at the end)
-
-# ── Open port 8447 in the AWS security group ─────────────────────────────────
-
-- name: Open API Gateway HTTPS ingress port
-  ansible.builtin.import_playbook: update-security-group.yaml
-  vars:
-    custom_port: 8447
-    custom_port_description: "Consul API Gateway - HTTPS ingress"
+#   curl -k https://<ingress-client-public-ip>:8447/
+#   (the playbook prints the ingress node's reachability result at the end)
 
 # ── Apply Consul config entries and deploy the API Gateway job ──────────────
 
@@ -46,6 +50,19 @@
     ansible_dir: "{{ hostvars[groups['servers'][0]]['inventory_dir'] }}"
     mesh_dir: "{{ ansible_dir }}/../nomad-jobs/consul-mesh"
     server_public_ip: "{{ hostvars[groups['servers'][0]]['ansible_host'] }}"
+    # The gateway job is constrained to nodes tagged nomad_node_role=ingress
+    # (set by terraform/aws/inventory.tpl) — see
+    # _context/wiki/dedicated-ingress-node-plan.md. Used below for the
+    # gateway cert's SAN and the post-deploy reachability check, instead of
+    # every client (the pre-ingress-node-plan behavior, when the gateway
+    # could land anywhere).
+    ingress_clients: >-
+      {{ groups['clients']
+         | map('extract', hostvars)
+         | selectattr('nomad_node_role', 'defined')
+         | selectattr('nomad_node_role', 'equalto', 'ingress')
+         | map(attribute='inventory_hostname')
+         | list }}
     # Every mesh-enabled service across both apps (Countdash + HashiCups).
     # service-defaults/<name>.hcl and intentions/<name>.hcl both exist for
     # each entry in this list.
@@ -142,7 +159,7 @@
       common_name: "api-gateway.local"
       use_common_name_for_san: false
       subject_alt_name: >-
-        {{ groups['clients']
+        {{ ingress_clients
            | map('extract', hostvars, 'ansible_host')
            | map('regex_replace', '^(.*)$', 'IP:\1')
            | list }}
@@ -220,15 +237,19 @@
     delay: 10
     changed_when: false
 
-  # ── Verification: probe every client's public IP on 8447 ────────────────
-  - name: Attempt to reach the API Gateway HTTPS listener on each client node
+  # ── Verification: probe the ingress node's public IP on 8447 ─────────────
+  # Only the ingress-tagged client is probed — the gateway job is constrained
+  # to schedule there (see _context/wiki/dedicated-ingress-node-plan.md), and
+  # 8447 is only open on that node's security group, so probing every client
+  # (the old behavior) would just report the others as unreachable by design.
+  - name: Attempt to reach the API Gateway HTTPS listener on the ingress node
     ansible.builtin.uri:
       url: "https://{{ hostvars[item]['ansible_host'] }}:8447/"
       method: GET
       validate_certs: false
       status_code: [200, 404, 502, 503]
     register: gateway_reachability
-    loop: "{{ groups['clients'] }}"
+    loop: "{{ ingress_clients }}"
     ignore_errors: true
     changed_when: false
 
