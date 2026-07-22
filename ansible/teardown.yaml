@@ -53,6 +53,20 @@
       state: absent
     tags: teardown_nomad
 
+  - name: Lazily unmount leftover Nomad alloc secrets/ tmpfs mounts
+    # Nomad mounts a private tmpfs at .../<alloc_id>/<task>/secrets for every
+    # task so secrets never touch disk. If the client stops before every
+    # allocation is drained/GC'd, these mounts outlive the process and make
+    # the directory removal below fail with "Device or resource busy".
+    ansible.builtin.shell: |
+      set -o pipefail
+      mount | awk '{print $3}' | grep '^/opt/nomad' | sort -r | xargs -r -n1 umount -l
+    args:
+      executable: /bin/bash
+    changed_when: false
+    failed_when: false
+    tags: teardown_nomad
+
   - name: Remove Nomad data and plugin directories
     ansible.builtin.file:
       path: /opt/nomad
@@ -254,6 +268,21 @@
     ansible.builtin.file:
       path: /etc/apt/sources.list.d/docker.list
       state: absent
+    tags: teardown_docker
+
+  - name: Lazily unmount leftover Docker overlay2/shm mounts
+    # Docker's overlay2 driver mounts a merged view (and a shm tmpfs) per
+    # container under /var/lib/docker/overlay2/<id>/. If a container wasn't
+    # cleanly stopped before the Docker service shut down, these mounts
+    # outlive it and make the directory removal below fail with "Device or
+    # resource busy" — same class of issue as the Nomad secrets/ tmpfs above.
+    ansible.builtin.shell: |
+      set -o pipefail
+      mount | awk '{print $3}' | grep -E '^/var/lib/(docker|containerd)' | sort -r | xargs -r -n1 umount -l
+    args:
+      executable: /bin/bash
+    changed_when: false
+    failed_when: false
     tags: teardown_docker
 
   - name: Remove /var/lib/docker data directory
