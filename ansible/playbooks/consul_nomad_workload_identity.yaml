@@ -36,6 +36,8 @@
     ansible.builtin.stat:
       path: "{{ inventory_dir }}/.tls/ca.pem"
     register: nomad_consul_ca_cert_stat
+    delegate_to: localhost
+    become: false
 
   - name: Read shared TLS CA certificate for Consul JWKS validation
     ansible.builtin.set_fact:

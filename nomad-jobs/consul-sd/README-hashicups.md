@@ -1,10 +1,24 @@
-# HashiCups Nomad Job
+# HashiCups — AWS (Consul Service Discovery)
 
-This directory contains the Nomad job specification for deploying **HashiCups**,
-a coffee shop demo application, using Consul service discovery. The job
+This is the AWS-only variant of the Nomad job specification for deploying
+**HashiCups**, a coffee shop demo application, using Consul service
+discovery ([`hashicups.nomad.hcl`](hashicups.nomad.hcl)). The job
 demonstrates multi-node scheduling: each of the six services runs in its own
 Nomad group, which lets the scheduler place them on different client nodes.
 Services discover each other using Consul DNS names.
+
+Two other variants of this app exist:
+
+- [`hashicups-multipass.nomad.hcl`](hashicups-multipass.nomad.hcl) — runs
+  the same six services on Multipass VMs (or any non-AWS host), and can also
+  run on AWS itself. See [`README-hashicups-multipass.md`](README-hashicups-multipass.md).
+- [`hashicups-consul-service-mesh.nomad.hcl`](../consul-mesh/hashicups-consul-service-mesh.nomad.hcl)
+  (lives in [`../consul-mesh/`](../consul-mesh/) alongside the mesh config
+  entries and API Gateway it depends on) — runs all six services with
+  `network.mode = "bridge"` and Envoy Connect sidecar proxies instead of
+  plain Consul DNS discovery, fronted by the Consul API Gateway. See
+  [`nomad-jobs/consul-mesh/README.md`](../consul-mesh/README.md) for the
+  full deploy order.
 
 ## Prerequisites
 
@@ -18,6 +32,10 @@ ansible-playbook -i inventory.ini deploy_consul_nomad_sd.yaml
 
 # Option D — Consul + Nomad + service discovery + workload identity
 ansible-playbook -i inventory.ini deploy_consul_nomad_wi.yaml
+
+# Option E — Consul + Nomad + service discovery + workload identity + service mesh
+# (required for hashicups-consul-service-mesh.nomad.hcl)
+ansible-playbook -i inventory.ini deploy_consul_nomad_mesh.yaml
 ```
 
 After the playbook completes, source the environment variables:

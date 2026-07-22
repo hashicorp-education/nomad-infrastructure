@@ -1,0 +1,279 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook: consul_nomad_api_gateway.yaml
+#
+# Deploys the Consul API Gateway (Option E rollout step 6): applies all
+# service-defaults and service-intentions config entries, generates a
+# self-signed TLS cert for the gateway's HTTPS listener, applies the
+# api-gateway + http-route (countdash) config entries, stores the Consul CA
+# cert as a Nomad Variable, and runs the api-gateway Nomad job in the
+# `ingress` namespace.
+#
+# The gateway job is constrained to the dedicated public ingress client
+# (meta.nodeRole = "ingress") — see
+# _context/wiki/dedicated-ingress-node-plan.md. Port 8447 is opened
+# unconditionally on that node's security group by Terraform
+# (aws_security_group.ingress_sg in terraform/aws/network.tf), not by this
+# playbook — there's deliberately no "open port 8447" step here anymore,
+# since opening it on every client (the old behavior) would defeat the
+# point of having a dedicated ingress node.
+#
+# This automates the manual steps documented in
+# nomad-jobs/consul-mesh/README.md (steps 1-6 and 8). It does NOT deploy the
+# hashicups-consul-service-mesh.nomad.hcl job or swap the http-route to
+# hashicups — that is rollout step 7, a separate follow-on task.
+#
+# Prerequisites (all must be complete before running this playbook):
+#   1. consul_nomad_service_mesh.yaml                      — Consul Connect + ingress namespace + gateway binding rule
+#   2. countdash-upstreams.nomad.hcl deployed     — nomad job run nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl
+#      and healthy (nomad job status countdash-mesh shows Healthy=1 for both groups)
+#   3. terraform apply already ran with the dedicated ingress client present
+#      (terraform/aws/terraform.tfvars ingress_client_count >= 1) and
+#      inventory.ini regenerated from it.
+#
+# Usage:
+#   ansible-playbook -i inventory.ini playbooks/consul_nomad_api_gateway.yaml
+#
+# After this playbook completes, verify:
+#   curl -k https://<ingress-client-public-ip>:8447/
+#   (the playbook prints the ingress node's reachability result at the end)
+
+# ── Apply Consul config entries and deploy the API Gateway job ──────────────
+
+- name: Deploy Consul config entries and the API Gateway Nomad job
+  hosts: localhost
+  gather_facts: false
+  become: false
+
+  vars:
+    ansible_dir: "{{ hostvars[groups['servers'][0]]['inventory_dir'] }}"
+    mesh_dir: "{{ ansible_dir }}/../nomad-jobs/consul-mesh"
+    server_public_ip: "{{ hostvars[groups['servers'][0]]['ansible_host'] }}"
+    # The gateway job is constrained to nodes tagged nomad_node_role=ingress
+    # (set by terraform/aws/inventory.tpl) — see
+    # _context/wiki/dedicated-ingress-node-plan.md. Used below for the
+    # gateway cert's SAN and the post-deploy reachability check, instead of
+    # every client (the pre-ingress-node-plan behavior, when the gateway
+    # could land anywhere).
+    ingress_clients: >-
+      {{ groups['clients']
+         | map('extract', hostvars)
+         | selectattr('nomad_node_role', 'defined')
+         | selectattr('nomad_node_role', 'equalto', 'ingress')
+         | map(attribute='inventory_hostname')
+         | list }}
+    # Every mesh-enabled service across both apps (Countdash + HashiCups).
+    # service-defaults/<name>.hcl and intentions/<name>.hcl both exist for
+    # each entry in this list.
+    mesh_services:
+      - countdash-api
+      - countdash-web
+      - nginx
+      - frontend
+      - public-api
+      - product-api
+      - payments-api
+      - database
+
+  pre_tasks:
+  - name: Read Consul bootstrap SecretID from local file
+    ansible.builtin.command: >-
+      cat {{ ansible_dir }}/tokens/consul-bootstrap-secret-id.txt
+    changed_when: false
+    register: consul_bootstrap_secret_id_file
+    no_log: true
+
+  - name: Set Consul bootstrap SecretID fact
+    ansible.builtin.set_fact:
+      consul_bootstrap_secret_id: "{{ consul_bootstrap_secret_id_file.stdout | trim }}"
+    no_log: true
+
+  - name: Read Nomad bootstrap SecretID from local file
+    ansible.builtin.command: >-
+      cat {{ ansible_dir }}/tokens/nomad-bootstrap-secret-id.txt
+    changed_when: false
+    register: nomad_bootstrap_secret_id_file
+    no_log: true
+
+  - name: Set Nomad bootstrap SecretID fact
+    ansible.builtin.set_fact:
+      nomad_bootstrap_secret_id: "{{ nomad_bootstrap_secret_id_file.stdout | trim }}"
+    no_log: true
+
+  - name: Set Consul/Nomad CLI environment facts
+    ansible.builtin.set_fact:
+      consul_env:
+        CONSUL_HTTP_ADDR: "https://{{ server_public_ip }}:8443"
+        CONSUL_HTTP_TOKEN: "{{ consul_bootstrap_secret_id }}"
+        CONSUL_CACERT: "{{ ansible_dir }}/.tls/ca.pem"
+      nomad_env:
+        NOMAD_ADDR: "https://{{ server_public_ip }}:4646"
+        NOMAD_TOKEN: "{{ nomad_bootstrap_secret_id }}"
+        NOMAD_CACERT: "{{ ansible_dir }}/.tls/ca.pem"
+    no_log: true
+
+  tasks:
+  # ── Step 1: service-defaults ────────────────────────────────────────────
+  - name: Apply service-defaults config entries
+    ansible.builtin.command: >-
+      consul config write {{ mesh_dir }}/service-defaults/{{ item }}.hcl
+    environment: "{{ consul_env }}"
+    changed_when: true
+    loop: "{{ mesh_services }}"
+
+  # ── Step 2: service-intentions ──────────────────────────────────────────
+  - name: Apply service-intentions config entries
+    ansible.builtin.command: >-
+      consul config write {{ mesh_dir }}/intentions/{{ item }}.hcl
+    environment: "{{ consul_env }}"
+    changed_when: true
+    loop: "{{ mesh_services }}"
+
+  # ── Step 3: gateway self-signed TLS cert (idempotent, mirrors the tls role) ─
+  - name: Ensure local TLS directory exists
+    ansible.builtin.file:
+      path: "{{ ansible_dir }}/.tls"
+      state: directory
+      mode: "0755"
+
+  - name: Check if API Gateway private key exists
+    ansible.builtin.stat:
+      path: "{{ ansible_dir }}/.tls/gateway-key.pem"
+    register: gateway_key_exists
+
+  - name: Create API Gateway private key
+    community.crypto.openssl_privatekey:
+      path: "{{ ansible_dir }}/.tls/gateway-key.pem"
+      mode: "0600"
+    when: not gateway_key_exists.stat.exists
+
+  - name: Check if API Gateway certificate exists
+    ansible.builtin.stat:
+      path: "{{ ansible_dir }}/.tls/gateway-cert.pem"
+    register: gateway_cert_exists
+
+  - name: Create API Gateway self-signed certificate CSR
+    community.crypto.openssl_csr_pipe:
+      privatekey_path: "{{ ansible_dir }}/.tls/gateway-key.pem"
+      common_name: "api-gateway.local"
+      use_common_name_for_san: false
+      subject_alt_name: >-
+        {{ ingress_clients
+           | map('extract', hostvars, 'ansible_host')
+           | map('regex_replace', '^(.*)$', 'IP:\1')
+           | list }}
+    register: gateway_csr
+    when: not gateway_cert_exists.stat.exists
+
+  - name: Create API Gateway self-signed certificate
+    community.crypto.x509_certificate:
+      path: "{{ ansible_dir }}/.tls/gateway-cert.pem"
+      csr_content: "{{ gateway_csr.csr }}"
+      privatekey_path: "{{ ansible_dir }}/.tls/gateway-key.pem"
+      provider: selfsigned
+      mode: "0644"
+    when: not gateway_cert_exists.stat.exists
+
+  # ── Step 3 (cont.): apply the inline-certificate config entry ───────────
+  # Rendered via a real .j2 template file (not an inline block-scalar
+  # string) because Ansible's playbook templar does not process Jinja
+  # string-literal escapes (e.g. replace('\n', '\\n')) the same way the
+  # `template` module does when loading an external template file.
+  - name: Render inline-certificate config entry
+    ansible.builtin.template:
+      src: templates/gateway-inline-certificate.hcl.j2
+      dest: "{{ ansible_dir }}/.tls/gateway-inline-certificate.hcl"
+      mode: "0600"
+    vars:
+      gateway_cert_path: "{{ ansible_dir }}/.tls/gateway-cert.pem"
+      gateway_key_path: "{{ ansible_dir }}/.tls/gateway-key.pem"
+    no_log: true
+
+  - name: Apply inline-certificate config entry for the API Gateway
+    ansible.builtin.command: >-
+      consul config write {{ ansible_dir }}/.tls/gateway-inline-certificate.hcl
+    environment: "{{ consul_env }}"
+    changed_when: true
+    no_log: true
+
+  # ── Step 4: api-gateway listener config entry ────────────────────────────
+  - name: Apply API Gateway listener config entry
+    ansible.builtin.command: >-
+      consul config write {{ mesh_dir }}/gateway-listener.hcl
+    environment: "{{ consul_env }}"
+    changed_when: true
+
+  # ── Step 5: http-route (countdash active by default) ────────────────────
+  - name: Apply countdash http-route config entry
+    ansible.builtin.command: >-
+      consul config write {{ mesh_dir }}/http-route-countdash.hcl
+    environment: "{{ consul_env }}"
+    changed_when: true
+
+  # ── Step 6: Consul CA cert as a Nomad Variable ───────────────────────────
+  - name: Store Consul CA cert as a Nomad Variable for the API Gateway job
+    ansible.builtin.command: >-
+      nomad var put -force -namespace ingress
+      nomad/jobs/api-gateway/gateway/setup
+      consul_cacert=@{{ ansible_dir }}/.tls/ca.pem
+    environment: "{{ nomad_env }}"
+    changed_when: true
+
+  # ── Step 8: deploy the API Gateway job ──────────────────────────────────
+  - name: Deploy the Consul API Gateway Nomad job
+    ansible.builtin.command: >-
+      nomad job run -namespace ingress {{ mesh_dir }}/api-gateway.nomad.hcl
+    environment: "{{ nomad_env }}"
+    changed_when: true
+
+  - name: Wait for the API Gateway allocation to be running
+    ansible.builtin.command: >-
+      nomad job allocs -namespace ingress api-gateway
+    environment: "{{ nomad_env }}"
+    register: gateway_allocs
+    until: gateway_allocs.stdout is regex('run\s+running')
+    retries: 18
+    delay: 10
+    changed_when: false
+
+  # ── Verification: probe the ingress node's public IP on 8447 ─────────────
+  # Only the ingress-tagged client is probed — the gateway job is constrained
+  # to schedule there (see _context/wiki/dedicated-ingress-node-plan.md), and
+  # 8447 is only open on that node's security group, so probing every client
+  # (the old behavior) would just report the others as unreachable by design.
+  - name: Attempt to reach the API Gateway HTTPS listener on the ingress node
+    ansible.builtin.uri:
+      url: "https://{{ hostvars[item]['ansible_host'] }}:8447/"
+      method: GET
+      validate_certs: false
+      status_code: [200, 404, 502, 503]
+    register: gateway_reachability
+    loop: "{{ ingress_clients }}"
+    ignore_errors: true
+    changed_when: false
+
+  - name: Display API Gateway reachability results
+    ansible.builtin.debug:
+      msg: >-
+        {{ hostvars[item.item]['ansible_host'] }}:8447 ->
+        {{ 'reachable (HTTP ' ~ (item.status | string) ~ ')'
+           if (item.status is defined and item.status | int > 0)
+           else 'not reachable (gateway alloc may be on the other client node, or still starting)' }}
+    loop: "{{ gateway_reachability.results }}"
+    loop_control:
+      label: "{{ hostvars[item.item]['ansible_host'] }}"
+
+  - name: Next steps
+    ansible.builtin.debug:
+      msg:
+        - "API Gateway deployed. Manually verify with:"
+        - "  curl -k https://<reachable-client-ip>:8447/"
+        - "Should return the countdash-web UI (HTML response)."
+        - ""
+        - "Spot-check intentions:"
+        - "  consul intention check api-gateway countdash-web   # Allowed"
+        - "  consul intention check nginx database              # Denied"
+        - ""
+        - "Rollout step 7 (HashiCups mesh + gateway route swap) is not run by"
+        - "this playbook — see nomad-jobs/consul-mesh/README.md step 9."

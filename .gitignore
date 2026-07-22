@@ -17,6 +17,9 @@ ansible/inventory.ini
 /tmp/
 *.log
 
+# Terraform Multipass workspace (generated cloud-init)
+terraform/multipass/.generated/
+
 # Tokens and secrets
 *_token.txt
 ansible/ssh_key.pem

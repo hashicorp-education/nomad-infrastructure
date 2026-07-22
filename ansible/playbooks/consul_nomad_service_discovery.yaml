@@ -109,6 +109,7 @@
     nomad_tls_enabled: true
     nomad_consul_integration_enabled: true
     nomad_consul_workload_identity_enabled: false
+    nomad_client_use_consul_token: true
     nomad_consul_address: "127.0.0.1:8500"
 
   roles:

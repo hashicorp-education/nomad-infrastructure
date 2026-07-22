@@ -126,3 +126,76 @@ argument_specs:
           nomad_consul_integration_enabled is true and
           nomad_consul_workload_identity_enabled is false (service-discovery
           scenario). Introduced in Nomad 2.0.4.
+
+      nomad_consul_connect_enabled:
+        type: bool
+        required: false
+        default: false
+        description: >-
+          When true (Nomad clients only), adds grpc_address/grpc_ca_file to the
+          consul{} block so Envoy sidecar proxies can reach Consul's TLS-enabled
+          gRPC xDS listener. Requires Consul agents to have connect.enabled and
+          ports.grpc_tls configured (consul_nomad_service_mesh.yaml).
+
+      nomad_consul_grpc_address:
+        type: str
+        required: false
+        default: "127.0.0.1:8503"
+        description: Address of the local Consul agent's TLS-enabled gRPC listener.
+
+      nomad_consul_grpc_ca_file:
+        type: str
+        required: false
+        default: "{{ nomad_config_dir }}/.tls/ca.crt"
+        description: >-
+          Path to the CA certificate used to verify Consul's gRPC TLS listener.
+          Defaults to the same shared cluster CA already installed for Nomad's
+          own TLS.
+
+      nomad_vault_integration_enabled:
+        type: bool
+        required: false
+        default: false
+        description: >-
+          When true, writes a top-level vault { enabled address } block in the
+          Nomad agent configuration. Set after running vault_servers.yaml and
+          nomad_vault_integration.yaml.
+
+      nomad_vault_workload_identity_enabled:
+        type: bool
+        required: false
+        default: false
+        description: >-
+          When true, adds jwt_auth_backend_path and default_identity to the
+          vault block (requires Nomad 1.7+). This is the only supported mode
+          for Vault integration in this repo. Has no effect unless
+          nomad_vault_integration_enabled is also true.
+
+      nomad_vault_address:
+        type: str
+        required: false
+        default: "https://127.0.0.1:8200"
+        description: >-
+          Address of the Vault cluster this agent talks to. Nomad servers
+          (which run Vault locally) should use their own loopback address;
+          Nomad clients (which do not run Vault) point at a Vault server.
+
+      nomad_vault_jwt_auth_backend_path:
+        type: str
+        required: false
+        default: "jwt-nomad"
+        description: Path of the Vault JWT auth method configured by nomad_vault_integration.yaml.
+
+      nomad_vault_default_identity_aud:
+        type: str
+        required: false
+        default: "vault.io"
+        description: >-
+          Audience value for the default Vault workload identity.
+          Must match bound_audiences in the Vault JWT role.
+
+      nomad_vault_default_identity_ttl:
+        type: str
+        required: false
+        default: "1h"
+        description: TTL for the default Vault workload identity token.

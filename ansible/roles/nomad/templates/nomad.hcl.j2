@@ -79,6 +79,14 @@ client {
     use_client_consul_token = true
   }
 {% endif %}
+{% if nomad_client_meta %}
+
+  meta {
+{% for k, v in nomad_client_meta.items() %}
+    {{ k }} = "{{ v }}"
+{% endfor %}
+  }
+{% endif %}
 }
 {% endif %}
 
@@ -93,6 +101,13 @@ consul {
   address = "{{ nomad_consul_address }}"
   token   = "{{ nomad_consul_agent_token }}"
 
+{% if nomad_client_enabled and nomad_consul_connect_enabled %}
+  # Consul Connect (service mesh) gRPC integration. Envoy sidecars launched by
+  # this client talk to the local Consul agent's TLS-enabled gRPC xDS listener.
+  grpc_address = "{{ nomad_consul_grpc_address }}"
+  grpc_ca_file = "{{ nomad_consul_grpc_ca_file }}"
+
+{% endif %}
 {% if nomad_consul_workload_identity_enabled %}
   # Default workload identity for Nomad services registering in Consul.
   # Nomad servers inject this identity into all jobs that use the Consul
@@ -107,6 +122,28 @@ consul {
   task_identity {
     aud = ["{{ nomad_consul_task_identity_aud }}"]
     ttl = "{{ nomad_consul_task_identity_ttl }}"
+  }
+{% endif %}
+}
+{% endif %}
+
+{% if nomad_vault_integration_enabled %}
+vault {
+  enabled = true
+  address = "{{ nomad_vault_address }}"
+
+{% if nomad_tls_enabled %}
+  ca_file = "{{ nomad_config_dir }}/.tls/ca.crt"
+{% endif %}
+{% if nomad_vault_workload_identity_enabled %}
+  jwt_auth_backend_path = "{{ nomad_vault_jwt_auth_backend_path }}"
+
+  # Default workload identity for Nomad tasks that use a vault {} block.
+  # Nomad servers inject this identity into every task; the Vault JWT auth
+  # method exchanges it for a scoped Vault token without a static token.
+  default_identity {
+    aud = ["{{ nomad_vault_default_identity_aud }}"]
+    ttl = "{{ nomad_vault_default_identity_ttl }}"
   }
 {% endif %}
 }

@@ -1,0 +1,15 @@
+{# Copyright (c) HashiCorp, Inc. #}
+{# SPDX-License-Identifier: MPL-2.0 #}
+{
+  "role_type": "jwt",
+  "bound_audiences": ["{{ nomad_vault_role_bound_audiences }}"],
+  "user_claim": "nomad_job_id",
+  "claim_mappings": {
+    "nomad_namespace": "nomad_namespace",
+    "nomad_job_id": "nomad_job_id",
+    "nomad_task": "nomad_task"
+  },
+  "token_policies": ["{{ nomad_vault_policy_name }}"],
+  "token_ttl": "{{ nomad_vault_role_ttl }}",
+  "token_type": "service"
+}

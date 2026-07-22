@@ -1,0 +1,52 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# nomad_vault role default variables
+#
+# Configures the Vault ACL resources required for Nomad workload identity
+# integration: a JWT auth method trusting Nomad's JWKS, a Vault policy, and a
+# Vault role that maps Nomad workload identity claims to that policy.
+
+# --- Vault connection ---
+# Address of the Vault instance reachable from the first Nomad server
+# (adjust if TLS is disabled).
+nomad_vault_addr: "https://127.0.0.1:8200"
+
+# Path to the Vault binary on the remote server
+nomad_vault_bin_path: "/usr/local/bin/vault"
+
+# CA certificate used to validate the local Vault TLS listener (shared cluster CA)
+nomad_vault_cacert: "/etc/vault.d/.tls/ca.crt"
+
+# --- Root token (from vault_servers.yaml init) ---
+nomad_vault_root_token_file: "{{ inventory_dir }}/tokens/vault-root-token-secret-id.txt"
+
+# --- Idempotency sentinel ---
+nomad_vault_wi_bootstrapped_file: "/opt/vault/data/nomad-vault-wi-bootstrapped.true"
+
+# Remote staging directory for policy and auth-method files (cleaned up after use)
+nomad_vault_staging_dir: "/tmp/nomad-vault-acl"
+
+# --- Vault JWT auth method ---
+nomad_vault_auth_method_path: "jwt-nomad"
+
+# JWKS URL that Vault uses to validate Nomad workload identity JWTs. Must be
+# reachable by the Vault server. Defaults to https:// since Nomad's HTTP API
+# is TLS-only when nomad_tls_enabled: true (the default); use an http:// URL
+# if Nomad TLS is disabled.
+nomad_vault_jwks_url: >-
+  https://{{ hostvars[groups['servers'][0]]['ansible_facts']['default_ipv4']['address'] }}:4646/.well-known/jwks.json
+
+# CA certificate (PEM content) Vault uses to validate the JWKS endpoint's TLS
+# certificate. Read from the shared cluster CA on the control machine by
+# nomad_vault_integration.yaml and passed in as this variable.
+nomad_vault_jwks_ca_cert: ""
+
+# --- Vault policy + role ---
+nomad_vault_policy_name: "nomad-workloads-policy"
+nomad_vault_role_name: "nomad-workloads"
+nomad_vault_role_bound_audiences: "vault.io"
+nomad_vault_role_ttl: "1h"
+
+# --- KV v2 secrets mount for Nomad workloads ---
+nomad_vault_secrets_mount: "secret"

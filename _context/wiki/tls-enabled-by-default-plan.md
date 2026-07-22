@@ -2,7 +2,7 @@
 
 Goal: flip `consul_tls_enabled` / `nomad_tls_enabled` to `true` by default across
 all four deploy entrypoints, fixing gaps found along the way. Test path:
-`deploy_consul_nomad_sd.yaml` then `nomad-jobs/hashicups/hashicups.nomad.hcl`.
+`deploy_consul_nomad_sd.yaml` then `nomad-jobs/consul-sd/hashicups.nomad.hcl`.
 
 ## Findings
 
@@ -87,6 +87,6 @@ all four deploy entrypoints, fixing gaps found along the way. Test path:
 - Verify Nomad via `NOMAD_ADDR=https://127.0.0.1:4646
   NOMAD_CACERT=/etc/nomad.d/.tls/ca.crt nomad server members`.
 - `source ansible/set-cluster-env.sh`, deploy
-  `nomad-jobs/hashicups/hashicups.nomad.hcl`, confirm allocations healthy and
+  `nomad-jobs/consul-sd/hashicups.nomad.hcl`, confirm allocations healthy and
   the app reachable; browse both UIs over https.
 - Confirm `.global` DNS resolution via dnsmasq is unaffected.

@@ -2,7 +2,7 @@
 
 ## Summary
 
-The HashiCups demo job (`nomad-jobs/hashicups/hashicups.nomad.hcl`) originally
+The HashiCups demo job (`nomad-jobs/consul-sd/hashicups.nomad.hcl`) originally
 exposed its `nginx` reverse proxy on plain HTTP, port 80, to the internet.
 This session added a self-signed HTTPS listener on port 443, then removed the
 HTTP listener entirely so end users can only reach HashiCups over HTTPS. Along
@@ -185,6 +185,6 @@ returned only the port 443 rule.
 
 ## Related documentation
 
-- [nomad-jobs/hashicups/README.md](../../nomad-jobs/hashicups/README.md) — full job architecture, security group requirements, deploy/verify/clean-up commands
+- [nomad-jobs/consul-sd/README-hashicups.md](../../nomad-jobs/consul-sd/README-hashicups.md) — full job architecture, security group requirements, deploy/verify/clean-up commands
 - [tls-enabled-troublshooting.md](tls-enabled-troublshooting.md) — cluster-level (Consul/Nomad control-plane) TLS bugs, a separate concern from this application-level TLS
 - [nginx-upstream-dns-startup-failure.md](nginx-upstream-dns-startup-failure.md) — a different nginx startup bug in this same job (DNS resolution timing), unrelated to TLS

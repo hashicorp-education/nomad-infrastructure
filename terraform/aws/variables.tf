@@ -85,6 +85,12 @@ variable "client_count" {
   default     = 2
 }
 
+variable "ingress_client_count" {
+  description = "Number of dedicated public ingress Nomad client instances (run the Consul API Gateway for Option E; tagged nomad_node_role=ingress in the generated inventory). Defaults to 0 — Terraform provisioning is shared across every deployment Option in DEPLOY_CLUSTER_GUIDE.md and runs before an Option is chosen, so only set this to 1+ in terraform.tfvars when you specifically intend to run Option E (service mesh); leaving it at 0 keeps Get Started/Option A/B/C/F's footprint unchanged. See _context/wiki/dedicated-ingress-node-plan.md."
+  type        = number
+  default     = 0
+}
+
 variable "server_instance_type" {
   description = "EC2 instance type for servers"
   type        = string
@@ -101,4 +107,22 @@ variable "project_name" {
   description = "Project name used for resource naming"
   type        = string
   default     = "nomad-consul"
+}
+
+variable "enable_load_balancer" {
+  description = "Create an external Application Load Balancer (ALB) in front of the Nomad clients, for the Load Balancer Integrations tutorial. Disabled by default."
+  type        = bool
+  default     = false
+}
+
+variable "load_balancer_target_port" {
+  description = "Fixed application port the ALB forwards to on every Nomad client instance. Defaults to the Countdash demo app's web UI port (also opened via extra_ingress_ports)."
+  type        = number
+  default     = 9002
+}
+
+variable "alb_subnet_cidr" {
+  description = "CIDR block for the second, instance-free subnet created only when enable_load_balancer is true (ALBs require two subnets in two Availability Zones). Must not overlap with subnet_cidr."
+  type        = string
+  default     = "10.0.2.0/24"
 }

@@ -84,6 +84,18 @@ tls {
     verify_outgoing         = true
     verify_server_hostname  = true
   }
+{% if consul_connect_enabled %}
+  # gRPC/xDS interface (Consul Connect / Envoy sidecars). Without this stanza
+  # the grpc_tls listener has no cert material of its own (it only inherits
+  # from tls.defaults, which we do not set), causing Envoy's xDS stream to
+  # fail the TLS handshake with "tlsv1 alert unrecognized name".
+  grpc {
+    ca_file         = "{{ consul_tls_dir }}/ca.pem"
+    cert_file       = "{{ consul_tls_dir }}/consul.pem"
+    key_file        = "{{ consul_tls_dir }}/consul-key.pem"
+    verify_incoming = false
+  }
+{% endif %}
 }
 
 {% endif %}

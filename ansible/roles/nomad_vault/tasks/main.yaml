@@ -1,0 +1,172 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# nomad_vault role tasks
+#
+# Configures Vault's JWT auth method, ACL policy, and role that let Nomad
+# workload identity JWTs authenticate to Vault at runtime (Nomad 1.7+),
+# removing the need for static Vault tokens on nodes or in job specs.
+#
+# Prerequisite: vault_servers.yaml must have run first so that Vault is
+# initialized, unsealed, and reachable, and the root token is saved locally.
+#
+# Idempotency is guarded by nomad_vault_wi_bootstrapped_file on the first server.
+
+# ── Idempotency check ──────────────────────────────────────────────────────────
+
+- name: Check if Nomad-Vault workload identity is already bootstrapped
+  become: true
+  ansible.builtin.stat:
+    path: "{{ nomad_vault_wi_bootstrapped_file }}"
+  register: nomad_vault_wi_bootstrapped_stat
+  delegate_to: "{{ groups['servers'] | first }}"
+  run_once: true
+
+# ── Bootstrap block ────────────────────────────────────────────────────────────
+
+- name: Bootstrap Nomad-Vault workload identity
+  when: not nomad_vault_wi_bootstrapped_stat.stat.exists
+  run_once: true
+  delegate_to: "{{ groups['servers'] | first }}"
+  block:
+
+    # -- Read Vault root token from the control machine -----------------------
+
+    - name: Read Vault root token from local file
+      become: false
+      ansible.builtin.command: "cat {{ nomad_vault_root_token_file }}"
+      changed_when: false
+      delegate_to: localhost
+      register: nomad_vault_root_token_out
+      no_log: true
+
+    - name: Set Vault root token fact
+      ansible.builtin.set_fact:
+        nomad_vault_root_token: "{{ nomad_vault_root_token_out.stdout | trim }}"
+      no_log: true
+
+    # -- Stage policy and auth-method files on the server ---------------------
+
+    - name: Create staging directory for Vault ACL files
+      become: true
+      ansible.builtin.file:
+        path: "{{ nomad_vault_staging_dir }}"
+        state: directory
+        mode: "0700"
+        owner: root
+        group: root
+
+    - name: Copy Nomad workloads Vault policy file to server
+      become: true
+      ansible.builtin.copy:
+        src: "nomad-workloads-policy.hcl"
+        dest: "{{ nomad_vault_staging_dir }}/nomad-workloads-policy.hcl"
+        mode: "0600"
+
+    - name: Template Nomad workloads JWT auth config to server
+      become: true
+      ansible.builtin.template:
+        src: nomad-workloads-jwt-auth.json.j2
+        dest: "{{ nomad_vault_staging_dir }}/nomad-workloads-jwt-auth.json"
+        mode: "0600"
+
+    - name: Template Nomad workloads Vault role to server
+      become: true
+      ansible.builtin.template:
+        src: nomad-workloads-vault-role.json.j2
+        dest: "{{ nomad_vault_staging_dir }}/nomad-workloads-vault-role.json"
+        mode: "0600"
+
+    - name: Slurp rendered nomad-workloads-jwt-auth.json for debug
+      become: true
+      ansible.builtin.slurp:
+        src: "{{ nomad_vault_staging_dir }}/nomad-workloads-jwt-auth.json"
+      register: _jwt_auth_content
+      changed_when: false
+      tags:
+        - debug_config
+
+    - name: Print rendered nomad-workloads-jwt-auth.json
+      ansible.builtin.debug:
+        msg: "{{ _jwt_auth_content.content | b64decode }}"
+        verbosity: 1
+      tags:
+        - debug_config
+
+    # -- Enable and configure the JWT auth method ------------------------------
+
+    - name: Enable Vault JWT auth method for Nomad workload identities
+      become: true
+      ansible.builtin.command: >-
+        {{ nomad_vault_bin_path }} auth enable -path={{ nomad_vault_auth_method_path }} jwt
+      environment:
+        VAULT_TOKEN: "{{ nomad_vault_root_token }}"
+        VAULT_ADDR: "{{ nomad_vault_addr }}"
+        VAULT_CACERT: "{{ nomad_vault_cacert }}"
+      changed_when: true
+
+    - name: Configure Vault JWT auth method
+      become: true
+      ansible.builtin.command: >-
+        {{ nomad_vault_bin_path }} write auth/{{ nomad_vault_auth_method_path }}/config
+        @{{ nomad_vault_staging_dir }}/nomad-workloads-jwt-auth.json
+      environment:
+        VAULT_TOKEN: "{{ nomad_vault_root_token }}"
+        VAULT_ADDR: "{{ nomad_vault_addr }}"
+        VAULT_CACERT: "{{ nomad_vault_cacert }}"
+      changed_when: true
+
+    # -- Enable a KV v2 mount for Nomad workloads -------------------------------
+
+    - name: Enable KV v2 secrets engine for Nomad workloads
+      become: true
+      ansible.builtin.command: >-
+        {{ nomad_vault_bin_path }} secrets enable -path={{ nomad_vault_secrets_mount }} -version=2 kv
+      environment:
+        VAULT_TOKEN: "{{ nomad_vault_root_token }}"
+        VAULT_ADDR: "{{ nomad_vault_addr }}"
+        VAULT_CACERT: "{{ nomad_vault_cacert }}"
+      register: nomad_vault_kv_enable
+      failed_when: >-
+        nomad_vault_kv_enable.rc != 0 and
+        'path is already in use' not in nomad_vault_kv_enable.stderr
+      changed_when: nomad_vault_kv_enable.rc == 0
+
+    # -- Create the ACL policy and JWT role -------------------------------------
+
+    - name: Create Vault ACL policy for Nomad task workload identities
+      become: true
+      ansible.builtin.command: >-
+        {{ nomad_vault_bin_path }} policy write {{ nomad_vault_policy_name }}
+        {{ nomad_vault_staging_dir }}/nomad-workloads-policy.hcl
+      environment:
+        VAULT_TOKEN: "{{ nomad_vault_root_token }}"
+        VAULT_ADDR: "{{ nomad_vault_addr }}"
+        VAULT_CACERT: "{{ nomad_vault_cacert }}"
+      changed_when: true
+
+    - name: Create Vault JWT role for Nomad task workload identities
+      become: true
+      ansible.builtin.command: >-
+        {{ nomad_vault_bin_path }} write auth/{{ nomad_vault_auth_method_path }}/role/{{ nomad_vault_role_name }}
+        @{{ nomad_vault_staging_dir }}/nomad-workloads-vault-role.json
+      environment:
+        VAULT_TOKEN: "{{ nomad_vault_root_token }}"
+        VAULT_ADDR: "{{ nomad_vault_addr }}"
+        VAULT_CACERT: "{{ nomad_vault_cacert }}"
+      changed_when: true
+
+    # -- Cleanup and sentinel --------------------------------------------------
+
+    - name: Remove Vault ACL staging directory from server
+      become: true
+      ansible.builtin.file:
+        path: "{{ nomad_vault_staging_dir }}"
+        state: absent
+
+    - name: Write Nomad-Vault workload identity bootstrapped sentinel file
+      become: true
+      ansible.builtin.copy:
+        content: "Nomad-Vault workload identity bootstrapped on {{ now(fmt='%Y-%m-%d %H:%M:%S %Z') }}.\n"
+        dest: "{{ nomad_vault_wi_bootstrapped_file }}"
+        mode: "0644"
