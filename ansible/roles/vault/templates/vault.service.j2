@@ -1,0 +1,26 @@
+{# Copyright (c) HashiCorp, Inc. #}
+{# SPDX-License-Identifier: MPL-2.0 #}
+[Unit]
+Description=Vault
+Documentation=https://developer.hashicorp.com/vault/docs
+Requires=network-online.target
+After=network-online.target
+
+[Service]
+User={{ vault_user }}
+Group={{ vault_group }}
+
+Type=notify
+ExecReload=/bin/kill -HUP $MAINPID
+ExecStart=/usr/local/bin/vault server -config {{ vault_config_dir }}
+KillMode=process
+KillSignal=SIGINT
+LimitNOFILE=65536
+LimitMEMLOCK=infinity
+Restart=on-failure
+RestartSec=2
+
+TasksMax=infinity
+
+[Install]
+WantedBy=multi-user.target

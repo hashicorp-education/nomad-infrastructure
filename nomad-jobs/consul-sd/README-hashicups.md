@@ -1,10 +1,24 @@
-# HashiCups Nomad Job
+# HashiCups — AWS (Consul Service Discovery)
 
-This directory contains the Nomad job specification for deploying **HashiCups**,
-a coffee shop demo application, using Consul service discovery. The job
+This is the AWS-only variant of the Nomad job specification for deploying
+**HashiCups**, a coffee shop demo application, using Consul service
+discovery ([`hashicups.nomad.hcl`](hashicups.nomad.hcl)). The job
 demonstrates multi-node scheduling: each of the six services runs in its own
 Nomad group, which lets the scheduler place them on different client nodes.
 Services discover each other using Consul DNS names.
+
+Two other variants of this app exist:
+
+- [`hashicups-multipass.nomad.hcl`](hashicups-multipass.nomad.hcl) — runs
+  the same six services on Multipass VMs (or any non-AWS host), and can also
+  run on AWS itself. See [`README-hashicups-multipass.md`](README-hashicups-multipass.md).
+- [`hashicups-consul-service-mesh.nomad.hcl`](../consul-mesh/hashicups-consul-service-mesh.nomad.hcl)
+  (lives in [`../consul-mesh/`](../consul-mesh/) alongside the mesh config
+  entries and API Gateway it depends on) — runs all six services with
+  `network.mode = "bridge"` and Envoy Connect sidecar proxies instead of
+  plain Consul DNS discovery, fronted by the Consul API Gateway. See
+  [`nomad-jobs/consul-mesh/README.md`](../consul-mesh/README.md) for the
+  full deploy order.
 
 ## Prerequisites
 
@@ -18,6 +32,10 @@ ansible-playbook -i inventory.ini deploy_consul_nomad_sd.yaml
 
 # Option D — Consul + Nomad + service discovery + workload identity
 ansible-playbook -i inventory.ini deploy_consul_nomad_wi.yaml
+
+# Option E — Consul + Nomad + service discovery + workload identity + service mesh
+# (required for hashicups-consul-service-mesh.nomad.hcl)
+ansible-playbook -i inventory.ini deploy_consul_nomad_mesh.yaml
 ```
 
 After the playbook completes, source the environment variables:
@@ -42,14 +60,14 @@ Nomad group.
 | `product-api` | `hashicorpdemoapp/product-api` | 9090 | `database` |
 | `public-api` | `hashicorpdemoapp/public-api` | 8081 | `product-api`, `payments-api` |
 | `frontend` | `hashicorpdemoapp/frontend` | 3000 | None (served through nginx) |
-| `nginx` | `nginx:alpine` | 80 | `frontend`, `public-api` |
+| `nginx` | `nginx:alpine` | 443 (HTTPS only) | `frontend`, `public-api` |
 
 ### Traffic flow
 
 ```
 Browser (your machine)
     │
-    │  port 80 (TCP, public internet)
+    │  port 443 (HTTPS, self-signed cert)
     ▼
 nginx task  ──► registers attr.unique.platform.aws.public-hostname
     │
@@ -68,21 +86,43 @@ nginx is the only service that registers its public hostname. All backend
 services register their private IPv4 address (`attr.unique.platform.aws.local-ipv4`)
 and are reachable only within the VPC.
 
+### HTTPS (self-signed certificate)
+
+The `nginx` group runs a `prestart` task, `nginx-tls-init`, before the `nginx`
+task starts. It generates a fresh self-signed certificate and key with
+`openssl` into `/alloc/tls/` (the Nomad alloc directory, automatically shared
+by every task in the group) using the allocation's `NOMAD_IP_nginx` address as
+the certificate's SAN. nginx listens **only** on:
+
+- `443` — HTTPS, using `/alloc/tls/nginx.crt` and `/alloc/tls/nginx.key`
+
+There is no plain-HTTP listener — port 80 is not opened by nginx or by the
+AWS security group. The Consul health check itself calls `https://.../health`
+with `tls_skip_verify = true` (the cert is self-signed, so certificate
+validation is skipped for the health check only).
+
+Because the certificate is self-signed and regenerated on every deploy,
+browsers show a certificate warning — click through it ("Advanced" →
+"Proceed") the same way you would for the Consul/Nomad UIs. This is a demo
+cert, not suitable for production use.
+
 ## AWS security group requirements
 
-Only port 80 needs an inbound rule in the AWS security group. All other ports
+Only port 443 needs an inbound rule in the AWS security group. Port 80 is
+intentionally **not** opened — end users must use HTTPS. All other ports
 (3000, 5432, 8080, 8081, 9090) carry VPC-internal traffic only.
 
 | Port | Protocol | Required | Purpose |
 |---|---|---|---|
-| `80` | TCP | **Yes** | nginx public entry point |
+| `443` | TCP | **Yes** | nginx public entry point (HTTPS, self-signed) |
+| `80` | TCP | No | Not used — nginx has no HTTP listener |
 | `3000` | TCP | No | frontend (VPC-internal) |
 | `5432` | TCP | No | PostgreSQL (VPC-internal) |
 | `8080` | TCP | No | payments-api (VPC-internal) |
 | `8081` | TCP | No | public-api (VPC-internal) |
 | `9090` | TCP | No | product-api (VPC-internal) |
 
-Port 80 is not included in the default `extra_ingress_ports` list. Add it
+Port 443 is not included in the default `extra_ingress_ports` list. Add it
 before deploying the job using one of these methods:
 
 **Terraform (persistent):** Edit `terraform/aws/terraform.tfvars`:
@@ -90,7 +130,7 @@ before deploying the job using one of these methods:
 ```hcl
 extra_ingress_ports = [
   { port = 9002, description = "Countdash example app - web UI" },
-  { port = 80,   description = "HashiCups nginx" },
+  { port = 443,  description = "HashiCups nginx TLS" },
 ]
 ```
 
@@ -107,8 +147,8 @@ terraform apply
 ```bash
 cd ansible
 ansible-playbook playbooks/update-security-group.yaml \
-  -e custom_port=80 \
-  -e custom_port_description="HashiCups nginx"
+  -e custom_port=443 \
+  -e custom_port_description="HashiCups nginx TLS"
 ```
 
 ## Consul configuration required
@@ -254,23 +294,36 @@ when multiple frontend allocations are running.
 ### `nginx` group
 
 **Image:** `nginx:alpine`  
-**Port:** 80 (static)  
+**Port:** 443 HTTPS only (static)  
 **Registers:** EC2 **public** hostname (`attr.unique.platform.aws.public-hostname`)
 
 nginx is the public entry point and the only service that exposes a port to
-the internet. It uses a Nomad `template` block to generate
-`/etc/nginx/conf.d/default.conf` at runtime:
+the internet. The group runs two tasks:
+
+- `nginx-tls-init` — a `prestart` task (runs to completion before `nginx`
+  starts) that generates a self-signed certificate and key with `openssl`
+  into `/alloc/tls/`, shared with the `nginx` task via the alloc directory.
+- `nginx` — uses a Nomad `template` block to generate
+  `/etc/nginx/conf.d/default.conf` at runtime with a single HTTPS `server`
+  block:
+
+| Port | Scheme | Notes |
+|---|---|---|
+| 443 | HTTPS | Uses the self-signed cert from `/alloc/tls/`. Only listener — there is no HTTP fallback. |
+
+The server block defines:
 
 - `location /` — proxies to `frontend.service.dc1.global:3000`
 - `location /api` — proxies to `public-api.service.dc1.global:8081`
 - `location = /health` — returns `{"status":"UP"}` as a synthetic JSON
-  response so the Consul HTTP health check passes without a dedicated
+  response so the Consul health check passes without a dedicated
   health endpoint in nginx itself
 
 nginx resolves `frontend.service.dc1.global` and `public-api.service.dc1.global`
 through dnsmasq at request time, so upstream address changes are transparent.
 
-**Health check:** `GET /health`.
+**Health check:** `GET https://.../health` with `tls_skip_verify = true` (the
+cert is self-signed).
 
 ## Variables
 
@@ -278,7 +331,7 @@ All variables have defaults. Override any of them at deploy time with `-var`:
 
 ```bash
 nomad job run \
-  -var="nginx_port=8080" \
+  -var="nginx_tls_port=8443" \
   -var="frontend_version=v1.1.0" \
   hashicups.nomad.hcl
 ```
@@ -300,7 +353,7 @@ nomad job run \
 | `payments_api_port` | `8080` | payments-api port |
 | `public_api_port` | `8081` | public-api port |
 | `frontend_port` | `3000` | frontend port |
-| `nginx_port` | `80` | nginx public port |
+| `nginx_tls_port` | `443` | nginx public HTTPS port (only listener) |
 
 ## Deploy
 
@@ -334,36 +387,38 @@ nomad job allocs hashicups
 consul catalog services
 ```
 
-Get the public URL (nginx can run on any client node). The following command
+Get the public IP (nginx can run on any client node). The following command
 returns an IP address.
 
 ```bash
 nomad node status -verbose \
     $(nomad job allocs hashicups | grep nginx | grep -i running | awk '{print $2}') | \
-    grep -i public-ipv4 | awk -F "=" '{print $2}' | xargs | \
-    awk '{print "http://"$1}'
+    grep -i public-ipv4 | awk -F "=" '{print $2}' | xargs
 ```
 
-Use the Consul API to find the HashiCups public address. Before running the
-following command, export `CONSUL_HTTP_ADDR` and `CONSUL_HTTP_TOKEN` (run
-`source ansible/set-cluster-env.sh` from the repository root if you have not
-already done so). The command also requires
-[curl v8.3.0+](https://curl.se/) and [jq](https://jqlang.org/).
+You may also use the Consul API to find the HashiCups public address. Before
+running the following command, export `CONSUL_HTTP_ADDR` and
+`CONSUL_HTTP_TOKEN`. Run `source ansible/set-cluster-env.sh` from the repository
+root if you have not already done so. The command also requires [curl
+v8.3.0+](https://curl.se/) and [jq](https://jqlang.org/).
 
 ```bash
-curl --variable '%CONSUL_HTTP_ADDR' --variable '%CONSUL_HTTP_TOKEN' \
+curl --cacert "$CONSUL_CACERT" --variable '%CONSUL_HTTP_ADDR' --variable '%CONSUL_HTTP_TOKEN' \
   --expand-url "{{CONSUL_HTTP_ADDR}}/v1/catalog/service/nginx?passing" \
   --expand-header "X-Consul-Token: {{CONSUL_HTTP_TOKEN}}" \
-  | jq -r '.[] | "http://\(.ServiceAddress)"'
+  | jq -r '.[] | .ServiceAddress'
 ```
 
-The result is the complete URL including the `http://` scheme. nginx is
-configured for plain HTTP on port 80 — do **not** use `https://`.
+The result is the bare address. Access HashiCups over HTTPS only:
 
-> **Brave browser note:** Brave's "Upgrade connections to HTTPS" feature
-> silently rewrites `http://` to `https://` for IP addresses. Since nginx has
-> no TLS configuration, the HTTPS attempt times out. Use Firefox, Chrome, or
-> Safari, or disable Brave Shields for this address before opening the URL.
+```bash
+https://<ServiceAddress>      # HTTPS, port 443, self-signed certificate
+```
+
+Plain HTTP is not available — nginx has no port 80 listener, and the AWS
+security group does not open port 80. Expect a browser certificate warning
+since the cert is self-signed and regenerated on every deploy — click through
+it ("Advanced" → "Proceed"), the same as for the Consul/Nomad UIs.
 
 ## Clean up
 

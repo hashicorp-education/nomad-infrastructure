@@ -32,7 +32,7 @@ The nomad role installs and configures HashiCorp Nomad v2.0.4 on both server and
 | `nomad_client_enabled` | bool | `false` | Enable client mode |
 | `nomad_client_servers` | list | `[]` | List of server addresses |
 | `nomad_acl_enabled` | bool | `false` | Enable ACL system |
-| `nomad_tls_enabled` | bool | `false` | Enable TLS |
+| `nomad_tls_enabled` | bool | `true` | Enable TLS for Nomad HTTP and RPC. Nomad has no loopback exception — when enabled, both layers are TLS-only |
 | `nomad_telemetry_enabled` | bool | `false` | Enable telemetry |
 | `nomad_telemetry_prometheus_metrics` | bool | `false` | Enable Prometheus metrics |
 | `nomad_log_level` | string | `INFO` | Logging level |
@@ -51,6 +51,12 @@ The nomad role installs and configures HashiCorp Nomad v2.0.4 on both server and
 | `nomad_consul_service_identity_ttl` | string | `1h` | TTL for service workload identity tokens |
 | `nomad_consul_task_identity_aud` | string | `consul.io` | Audience for task workload identities |
 | `nomad_consul_task_identity_ttl` | string | `1h` | TTL for task workload identity tokens |
+| `nomad_vault_integration_enabled` | bool | `false` | Enable Vault integration (top-level `vault {}` block); set `true` after running `vault_servers.yaml` and `nomad_vault_integration.yaml` |
+| `nomad_vault_workload_identity_enabled` | bool | `false` | Add `jwt_auth_backend_path` and `default_identity` to the `vault {}` block (requires Nomad 1.7+); the only supported Vault integration mode in this repo |
+| `nomad_vault_address` | string | `https://127.0.0.1:8200` | Vault cluster address. Servers (which run Vault locally) use their own loopback; clients point at a Vault server |
+| `nomad_vault_jwt_auth_backend_path` | string | `jwt-nomad` | Vault JWT auth method path configured by `nomad_vault_integration.yaml` |
+| `nomad_vault_default_identity_aud` | string | `vault.io` | Audience for the default Vault workload identity |
+| `nomad_vault_default_identity_ttl` | string | `1h` | TTL for the default Vault workload identity token |
 
 ## Directory structure
 
@@ -222,8 +228,9 @@ sudo journalctl -u nomad -f
 
 Prometheus metrics are exposed at:
 ```
-http://<nomad-address>:4646/v1/metrics?format=prometheus
+https://<nomad-address>:4646/v1/metrics?format=prometheus
 ```
+(`http://` when `nomad_tls_enabled: false`)
 
 ## ACL bootstrap
 
@@ -274,7 +281,7 @@ nomad agent-info | grep servers
 - Runs as root by default (required for Docker access)
 - Configuration files have restrictive permissions (0600)
 - Consider enabling ACLs for production
-- Use TLS for production deployments
+- TLS is enabled by default (`nomad_tls_enabled: true`); Nomad's HTTP and RPC layers are TLS-only with no loopback exception
 - Restrict network access via security groups
 
 ## Upgrade process

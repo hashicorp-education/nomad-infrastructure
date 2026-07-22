@@ -1,0 +1,102 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook: nomad_vault_integration.yaml
+#
+# Configures Nomad Workload Identity for Vault (requires Nomad 1.7+):
+#   - Creates the Vault JWT auth method (jwt-nomad) pointing at the first
+#     Nomad server's JWKS endpoint
+#   - Creates a Vault ACL policy and JWT role scoped to Nomad task claims
+#   - Enables a KV v2 secrets engine at secret/ for Nomad workloads
+#   - Updates Nomad server AND client configuration with a top-level vault {}
+#     block (enabled, address, jwt_auth_backend_path, default_identity)
+#
+# With workload identity enabled, Nomad tasks exchange a short-lived JWT for
+# a scoped Vault token automatically (via a `vault {}` block in the job/task
+# spec), with no static Vault token in job specs or Nomad agent configuration.
+#
+# This repo only supports the workload identity integration mode — there is
+# no legacy static-token fallback (unlike the Consul integration, which
+# supports both modes for teaching purposes).
+#
+# Prerequisites (must be complete before running this playbook):
+#   1. nomad_servers.yaml and nomad_clients.yaml — Nomad cluster running
+#   2. vault_servers.yaml — Vault initialized, unsealed, and the root token
+#      saved to tokens/vault-root-token-secret-id.txt
+#
+# Usage:
+#   ansible-playbook -i inventory.ini nomad_vault_integration.yaml
+
+# ── Play 1: Create Vault JWT auth method, policy, and role ────────────────────
+
+- name: Configure Vault JWT auth method for Nomad workload identity
+  hosts: servers
+  gather_facts: true
+
+  pre_tasks:
+  - name: Check for shared TLS CA certificate
+    ansible.builtin.stat:
+      path: "{{ inventory_dir }}/.tls/ca.pem"
+    register: nomad_vault_ca_cert_stat
+    delegate_to: localhost
+    become: false
+
+  - name: Read shared TLS CA certificate for Vault JWKS validation
+    ansible.builtin.set_fact:
+      nomad_vault_jwks_ca_cert: "{{ lookup('file', inventory_dir + '/.tls/ca.pem') }}"
+    when: nomad_vault_ca_cert_stat.stat.exists
+
+  vars:
+    nomad_vault_jwks_url: >-
+      https://{{ hostvars[groups['servers'][0]]['ansible_facts']['default_ipv4']['address'] }}:4646/.well-known/jwks.json
+
+  roles:
+  - role: nomad_vault
+
+# ── Play 2: Add vault {} block to Nomad server configuration ──────────────────
+
+- name: Update Nomad server configuration with Vault integration
+  hosts: servers
+  become: true
+  gather_facts: true
+
+  vars:
+    nomad_server_enabled: true
+    nomad_server_bootstrap_expect: "{{ groups['servers'] | length }}"
+    nomad_node_name: "nomad-server-{{ groups['servers'].index(inventory_hostname) + 1 }}"
+    nomad_client_enabled: false
+    nomad_cloud_auto_join_enabled: false
+    nomad_acl_enabled: true
+    nomad_log_level: "DEBUG"
+    nomad_enable_debug: true
+    nomad_tls_enabled: true
+    nomad_vault_integration_enabled: true
+    nomad_vault_workload_identity_enabled: true
+    nomad_vault_address: "https://127.0.0.1:8200"
+
+  roles:
+  - role: nomad
+
+# ── Play 3: Add vault {} block to Nomad client configuration ──────────────────
+
+- name: Update Nomad client configuration with Vault integration
+  hosts: clients
+  become: true
+  gather_facts: true
+
+  vars:
+    nomad_server_enabled: false
+    nomad_client_enabled: true
+    nomad_node_name: "nomad-client-{{ groups['clients'].index(inventory_hostname) + 1 }}"
+    nomad_cloud_auto_join_enabled: false
+    nomad_acl_enabled: true
+    nomad_log_level: "DEBUG"
+    nomad_enable_debug: true
+    nomad_tls_enabled: true
+    nomad_vault_integration_enabled: true
+    nomad_vault_workload_identity_enabled: true
+    nomad_vault_address: >-
+      https://{{ hostvars[groups['servers'][0]]['ansible_facts']['default_ipv4']['address'] }}:8200
+
+  roles:
+  - role: nomad

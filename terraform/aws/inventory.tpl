@@ -7,7 +7,7 @@ ${name} ansible_host=${instance.ip} private_ip=${instance.private_ip}
 
 [clients]
 %{ for name, instance in clients ~}
-${name} ansible_host=${instance.ip} private_ip=${instance.private_ip}
+${name} ansible_host=${instance.ip} private_ip=${instance.private_ip} nomad_node_role=${instance.role}
 %{ endfor ~}
 
 [all:vars]

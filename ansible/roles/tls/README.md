@@ -7,11 +7,11 @@ The TLS role generates TLS certificates for secure communication in the Nomad cl
 ## Features
 
 - Generates self-signed Certificate Authority (CA)
-- Creates individual certificates for each node
+- Creates individual certificates for each node with a non-empty Common Name plus standard `keyUsage`/`extendedKeyUsage` extensions, for RFC 5280-compliant, browser-compatible TLS server certificates
 - Signs certificates with the CA
 - Supports Subject Alternative Names (SANs) for IP and DNS
 - Stores certificates locally for distribution
-- Idempotent - only generates if certificates don't exist
+- Idempotent — the CA is only generated once; node certificates are re-signed automatically (via `community.crypto.x509_certificate_pipe`, `provider: ownca`) whenever the rendered CSR differs from the existing certificate, e.g. after a CSR field change in this role
 
 ## Variables
 
@@ -46,20 +46,19 @@ ansible/.tls/
 
 ## Usage
 
-This role is used in the role list of both server and client playbooks to generate certificates before other roles run. The `when: nomad_tls_enabled` condition ensures the role is skipped when TLS is disabled.
+This role is used in the role list of both server and client playbooks to generate certificates before other roles run. The `when: nomad_tls_enabled` (or `consul_tls_enabled`) condition ensures the role is skipped when TLS is disabled. TLS is enabled by default for both products.
 
-**Server playbook** (`playbooks/nomad_servers.yaml`):
+**Nomad server playbook** (`playbooks/nomad_servers.yaml`):
 ```yaml
 - role: tls
   when: nomad_tls_enabled
-- role: tls
   tls_self_signed_generate:
   - agent-name: "{{ inventory_hostname }}"
     ip: "{{ ansible_facts['default_ipv4']['address'] }}"
-    dns: "client.global.nomad"
+    dns: "server.global.nomad"
 ```
 
-**Cert distribution** (separate `helper` role call, also in `nomad_servers.yaml`):
+**Nomad cert distribution** (separate `helper` role call, also in `nomad_servers.yaml`):
 ```yaml
 - role: helper
   when: nomad_tls_enabled | bool
@@ -76,6 +75,36 @@ This role is used in the role list of both server and client playbooks to genera
       mode: "0600"
 ```
 
+**Consul server playbook** (`playbooks/consul_servers.yaml`) — same CA, distinct DNS SAN and destination owned by the `consul` user:
+```yaml
+- role: tls
+  when: consul_tls_enabled
+  tls_self_signed_generate:
+  - agent-name: "{{ inventory_hostname }}"
+    ip: "{{ ansible_facts['default_ipv4']['address'] }}"
+    dns: "server.{{ consul_datacenter }}.{{ consul_domain }}"
+
+- role: helper
+  when: consul_tls_enabled | bool
+  vars:
+    helper_file_copy_local:
+    - src: "{{ inventory_dir }}/.tls/ca.pem"
+      dst: "{{ consul_tls_dir }}/ca.pem"
+      owner: "{{ consul_user }}"
+      group: "{{ consul_group }}"
+      mode: "0644"
+    - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}.pem"
+      dst: "{{ consul_tls_dir }}/consul.pem"
+      owner: "{{ consul_user }}"
+      group: "{{ consul_group }}"
+      mode: "0644"
+    - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}-key.pem"
+      dst: "{{ consul_tls_dir }}/consul-key.pem"
+      owner: "{{ consul_user }}"
+      group: "{{ consul_group }}"
+      mode: "0600"
+```
+
 ## Certificate details
 
 ### CA certificate
@@ -85,20 +114,23 @@ This role is used in the role list of both server and client playbooks to genera
 - **Validity**: Self-signed
 
 ### Node certificates
-- **Subject Alternative Names**:
+- **Common Name**: the item's `dns` value (e.g. `server.global.nomad`). This keeps the Subject non-empty, which is required by [RFC 5280 §4.2.1.6](https://www.rfc-editor.org/rfc/rfc5280#section-4.2.1.6) whenever the SAN extension is not marked critical — Chrome, Brave, and Safari enforce this strictly and will hard-fail the TLS handshake on a certificate with an empty Subject and a non-critical SAN.
+- **Subject Alternative Names** (not marked critical, since Common Name is set):
   - IP: 127.0.0.1 (localhost)
   - IP: Node's IP address
   - IP: Ansible host IP
   - DNS: localhost
   - DNS: Node's DNS name
+- **Key Usage** (critical): Digital Signature, Key Encipherment
+- **Extended Key Usage**: TLS Web Server Authentication (`serverAuth`) and TLS Web Client Authentication (`clientAuth`) — both purposes are required because Consul (`internal_rpc`) and Nomad (RPC layer) use mutual TLS between servers: each server presents this same node certificate as a TLS *client* cert when connecting to peer servers, not just as a server cert for API/UI traffic. A `serverAuth`-only certificate is rejected during that client-auth handshake, which breaks Raft/gossip and prevents leader election entirely.
 - **Signed By**: CA certificate
 - **Validity**: 365 days from creation
 
 ## Certificate distribution
 
-After generation, certificates are distributed by the **helper** role (see `playbooks/nomad_servers.yaml` and `playbooks/nomad_clients.yaml`).
+After generation, certificates are distributed by the **helper** role (see `playbooks/nomad_servers.yaml`, `playbooks/nomad_clients.yaml`, `playbooks/consul_servers.yaml`, and `playbooks/consul_clients.yaml`).
 
-Certificates are written to `/etc/nomad.d/.tls/` on each node.
+Certificates are written to `/etc/nomad.d/.tls/` (owned by the `nomad` user) and `{{ consul_tls_dir }}` (default `/etc/consul.d/tls/`, owned by the `consul` user) on each node. Consul and Nomad certificates on the same node share the same CA, generated once per cluster.
 
 ## Dependencies
 

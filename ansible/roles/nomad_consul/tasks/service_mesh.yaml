@@ -1,0 +1,77 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# nomad_consul role tasks — service mesh (Consul Connect)
+#
+# Creates the Consul ACL binding rule that lets the Nomad-managed API Gateway
+# workload exchange its workload identity JWT for a Consul ACL token carrying
+# the built-in `builtin/api-gateway` templated policy. Reuses the existing
+# `nomad-workloads` JWT auth method created by workload_identity.yaml — no new
+# auth method is created.
+#
+# Prerequisite: workload_identity.yaml must have run first so that the
+# nomad-workloads auth method already exists.
+#
+# Idempotency is guarded by nomad_consul_mesh_bootstrapped_file on the first server.
+
+# ── Idempotency check ──────────────────────────────────────────────────────────
+
+- name: Check if Consul-Nomad service mesh is already bootstrapped
+  become: true
+  ansible.builtin.stat:
+    path: "{{ nomad_consul_mesh_bootstrapped_file }}"
+  register: nomad_consul_mesh_bootstrapped_stat
+  delegate_to: "{{ groups['servers'] | first }}"
+  run_once: true
+
+# ── Bootstrap block ────────────────────────────────────────────────────────────
+
+- name: Bootstrap Consul-Nomad service mesh ACL resources
+  when: not nomad_consul_mesh_bootstrapped_stat.stat.exists
+  run_once: true
+  delegate_to: "{{ groups['servers'] | first }}"
+  block:
+
+    # -- Read bootstrap token from the control machine -------------------------
+
+    - name: Read Consul bootstrap SecretID from local file
+      become: false
+      ansible.builtin.command: "cat {{ nomad_consul_bootstrap_secret_id_file }}"
+      changed_when: false
+      delegate_to: localhost
+      register: nomad_consul_mesh_bootstrap_secret_id_out
+
+    - name: Set Consul bootstrap SecretID fact
+      ansible.builtin.set_fact:
+        nomad_consul_bootstrap_secret_id: "{{ nomad_consul_mesh_bootstrap_secret_id_out.stdout | trim }}"
+
+    # -- Create Consul ACL binding rule for the API Gateway workload -----------
+    # Bind-type templated-policy grants the built-in api-gateway ACL template,
+    # scoped to the gateway's own Nomad job ID. Selector restricts this rule to
+    # workload identities in the "ingress" Nomad namespace that are not plain
+    # service registrations (so it never collides with the Option D service
+    # binding rule).
+
+    - name: Create Consul binding rule for the Nomad API Gateway workload
+      become: true
+      ansible.builtin.shell: |
+        {{ nomad_consul_bin_path }} acl binding-rule create \
+          -method '{{ nomad_consul_auth_method_name }}' \
+          -description '{{ nomad_consul_gateway_binding_rule_description }}' \
+          -bind-type 'templated-policy' \
+          -bind-name 'builtin/api-gateway' \
+          -bind-vars 'Name=${value.nomad_job_id}' \
+          -selector '"nomad_service" not in value and value.nomad_namespace=={{ nomad_consul_gateway_namespace }}'
+      environment:
+        CONSUL_HTTP_TOKEN: "{{ nomad_consul_bootstrap_secret_id }}"
+        CONSUL_HTTP_ADDR: "{{ nomad_consul_http_addr }}"
+      changed_when: true
+
+    # -- Sentinel ---------------------------------------------------------------
+
+    - name: Write Consul-Nomad service mesh bootstrapped sentinel file
+      become: true
+      ansible.builtin.copy:
+        content: "Consul-Nomad service mesh bootstrapped on {{ now(fmt='%Y-%m-%d %H:%M:%S %Z') }}.\n"
+        dest: "{{ nomad_consul_mesh_bootstrapped_file }}"
+        mode: "0644"

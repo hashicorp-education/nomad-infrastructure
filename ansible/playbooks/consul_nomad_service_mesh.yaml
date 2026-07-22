@@ -1,0 +1,278 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook: consul_nomad_service_mesh.yaml
+#
+# Enables Consul Connect (service mesh) on top of Option D (workload
+# identity):
+#   - Play 1/2: re-renders consul.hcl on servers and clients with
+#     connect.enabled = true and a real grpc_tls port, then restarts Consul.
+#     Both plays also re-supply consul_acl_dns_token (read from
+#     tokens/consul-dns-secret-id.txt) — without it, restarting Consul here
+#     silently reverts DNS ACL access to the anonymous token (denied by
+#     consul_acl_deny_anonymous.yaml), which breaks any in-mesh service that
+#     resolves another service by Consul DNS name (e.g. transparent_proxy
+#     job specs) with a bare NXDOMAIN and no other error. Found live while
+#     verifying transparent proxy — see
+#     _context/wiki/transparent-proxy-enablement-plan.md.
+#     Play 2 also installs the consul-cni plugin on clients
+#     (consul_cni_enabled: true) — required for Nomad's transparent_proxy
+#     mode, the default/recommended mesh job spec for Countdash as of this
+#     playbook (nomad-jobs/consul-mesh/countdash-transparent-proxy.nomad.hcl;
+#     the explicit-upstreams variant, countdash-upstreams.nomad.hcl, remains
+#     available and doesn't need this plugin). If a new consul-cni binary is
+#     actually installed, a play-level handler restarts Nomad on that client
+#     automatically — Nomad only fingerprints /opt/cni/bin for new plugins
+#     at agent startup, so an already-running client would otherwise never
+#     see it. See _context/wiki/transparent-proxy-enablement-plan.md.
+#   - Play 3: re-renders nomad.hcl on Nomad CLIENTS with consul.grpc_address /
+#     consul.grpc_ca_file so Nomad can bootstrap Envoy sidecars against
+#     Consul's TLS-enabled gRPC/xDS listener. (Per Nomad's documented consul
+#     block parameters, grpc_address/grpc_ca_file are CLIENT-only settings —
+#     Envoy sidecars only ever run on Nomad clients, never servers.)
+#   - Play 4: creates the Nomad `ingress` namespace, the Consul ACL binding
+#     rule that lets the API Gateway workload exchange its workload identity
+#     for the built-in api-gateway templated policy (reuses the existing
+#     nomad-workloads JWT auth method from Option D — no new auth method),
+#     and a Nomad ACL policy granting the gateway task read access to its
+#     own Nomad Variable (nomad/jobs/api-gateway/gateway/*) — without it the
+#     gateway job hangs at "Missing: nomad.var.block(...)" on every rebuild;
+#     see issue 5 in _context/wiki/api-gateway-envoy-bootstrap-troubleshooting.md.
+#
+# No existing job specs or playbooks are modified. Service intentions,
+# service-defaults config entries, and the API Gateway job itself are applied
+# separately (see nomad-jobs/consul-mesh/README.md) since they are an
+# application-level concern, not cluster infrastructure.
+#
+# Prerequisites (all must be complete before running this playbook):
+#   1. consul_nomad_service_discovery.yaml  — Consul ACL policies/tokens for Nomad agents
+#   2. consul_nomad_workload_identity.yaml  — nomad-workloads JWT auth method + binding rules
+#
+# Usage:
+#   ansible-playbook -i inventory.ini consul_nomad_service_mesh.yaml
+
+# ── Play 1: Enable Consul Connect on servers ───────────────────────────────────
+
+- name: Enable Consul Connect on Consul servers
+  hosts: servers
+  become: true
+  gather_facts: true
+
+  vars:
+    # --- Consul role variables — mirror consul_servers.yaml, add Connect ---
+    consul_server_enabled: true
+    consul_server_bootstrap_expect: "{{ groups['servers'] | length }}"
+    consul_node_name: "consul-server-{{ groups['servers'].index(inventory_hostname) + 1 }}"
+    consul_datacenter: "dc1"
+    consul_log_level: "INFO"
+    consul_ui_enabled: true
+    consul_cloud_auto_join_enabled: true
+    consul_cloud_auto_join_tag_key: "AutoJoinRole"
+    consul_cloud_auto_join_tag_value: "server"
+    consul_acl_enabled: true
+    consul_tls_enabled: true
+    consul_port_https: 8443
+    consul_connect_enabled: true
+    consul_port_grpc_tls: 8503
+
+  pre_tasks:
+  - name: Read DNS token SecretID from local file
+    become: false
+    ansible.builtin.command: "cat {{ inventory_dir }}/tokens/consul-dns-secret-id.txt"
+    changed_when: false
+    delegate_to: localhost
+    run_once: true
+    register: consul_dns_out
+    no_log: true
+
+  - name: Set DNS token fact on all servers
+    ansible.builtin.set_fact:
+      consul_acl_dns_token: "{{ consul_dns_out.stdout | trim }}"
+    no_log: true
+
+  roles:
+  - role: consul
+
+# ── Play 2: Enable Consul Connect on clients ───────────────────────────────────
+
+- name: Enable Consul Connect on Consul clients
+  hosts: clients
+  become: true
+  gather_facts: true
+
+  vars:
+    # --- Consul role variables ---
+    # Mirror consul_dns_token.yaml Play 3 (the play that actually last wrote
+    # each client's consul.hcl on this cluster — it turned ACL on after the
+    # base consul_clients.yaml deployed with ACL off), and add Connect.
+    # consul_node_name is intentionally absent so it defaults to
+    # inventory_hostname, matching the node-identity tokens from that play.
+    consul_server_enabled: false
+    consul_datacenter: "dc1"
+    consul_log_level: "INFO"
+    consul_cloud_auto_join_enabled: true
+    consul_cloud_auto_join_tag_key: "AutoJoinRole"
+    consul_cloud_auto_join_tag_value: "server"
+    consul_acl_enabled: true
+    consul_tls_enabled: true
+    consul_port_https: 8443
+    consul_connect_enabled: true
+    consul_port_grpc_tls: 8503
+
+  pre_tasks:
+  - name: Read DNS token SecretID from local file
+    become: false
+    ansible.builtin.command: "cat {{ inventory_dir }}/tokens/consul-dns-secret-id.txt"
+    changed_when: false
+    delegate_to: localhost
+    run_once: true
+    register: consul_dns_out
+    no_log: true
+
+  - name: Set DNS token fact on all clients
+    ansible.builtin.set_fact:
+      consul_acl_dns_token: "{{ consul_dns_out.stdout | trim }}"
+    no_log: true
+
+  roles:
+  - role: consul
+  - role: cni
+    vars:
+      # Installs the separate consul-cni plugin (not part of the standard
+      # CNI bundle already installed by nomad_clients.yaml) required for
+      # Nomad's transparent_proxy mode. Idempotent even if this role already
+      # ran during base client setup, since it checks for the consul-cni
+      # binary specifically, independent of the standard-plugins check.
+      consul_cni_enabled: true
+
+  handlers:
+  # Notified by ansible/roles/cni/tasks/install_consul_cni.yaml only when a
+  # new consul-cni binary was actually written. Defined here (not in the
+  # cni role itself) since only this play's use of the role needs it —
+  # nomad_clients.yaml also uses the cni role but never sets
+  # consul_cni_enabled, so it never notifies this handler.
+  - name: Restart nomad on clients (consul-cni installed)
+    ansible.builtin.systemd:
+      name: nomad
+      state: restarted
+
+# ── Play 3: Add grpc_address/grpc_ca_file to Nomad client configs ──────────────
+
+- name: Update Nomad client configuration with Consul Connect gRPC settings
+  hosts: clients
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+  - name: Read Nomad client Consul SecretID from local file
+    become: false
+    ansible.builtin.command: >-
+      cat {{ inventory_dir }}/tokens/nomad-consul-client-secret-id.txt
+    changed_when: false
+    delegate_to: localhost
+    run_once: true
+    register: nomad_consul_client_secret_id_file
+
+  - name: Set Nomad client Consul token fact
+    ansible.builtin.set_fact:
+      nomad_consul_agent_token: "{{ nomad_consul_client_secret_id_file.stdout | trim }}"
+
+  vars:
+    # --- Nomad role variables — mirror the client consul-block re-render ---
+    # from consul_nomad_service_discovery.yaml Play 3, adding Connect gRPC settings.
+    nomad_server_enabled: false
+    nomad_client_enabled: true
+    nomad_node_name: "nomad-client-{{ groups['clients'].index(inventory_hostname) + 1 }}"
+    nomad_cloud_auto_join_enabled: false
+    nomad_acl_enabled: true
+    nomad_log_level: "DEBUG"
+    nomad_enable_debug: true
+    nomad_tls_enabled: true
+    nomad_consul_integration_enabled: true
+    nomad_consul_workload_identity_enabled: false
+    nomad_consul_address: "127.0.0.1:8500"
+    nomad_consul_connect_enabled: true
+    nomad_consul_grpc_address: "127.0.0.1:8503"
+    nomad_consul_grpc_ca_file: "/etc/nomad.d/.tls/ca.crt"
+
+  roles:
+  - role: nomad
+
+  post_tasks:
+  - name: Wait for Nomad to be ready after Connect gRPC config change
+    ansible.builtin.wait_for:
+      port: 4646
+      delay: 5
+      timeout: 60
+      host: "{{ ansible_facts['default_ipv4']['address'] }}"
+      state: started
+
+# ── Play 4: Create ingress namespace and API Gateway Consul ACL binding rule ───
+
+- name: Create Nomad ingress namespace and Consul API Gateway binding rule
+  hosts: servers[0]
+  become: true
+  gather_facts: false
+
+  pre_tasks:
+  - name: Read Nomad bootstrap SecretID from local file
+    become: false
+    ansible.builtin.command: >-
+      cat {{ inventory_dir }}/tokens/nomad-bootstrap-secret-id.txt
+    changed_when: false
+    delegate_to: localhost
+    register: nomad_bootstrap_secret_id_file
+    no_log: true
+
+  - name: Set Nomad bootstrap SecretID fact
+    ansible.builtin.set_fact:
+      nomad_bootstrap_secret_id: "{{ nomad_bootstrap_secret_id_file.stdout | trim }}"
+    no_log: true
+
+  - name: Create Nomad ingress namespace for the API Gateway job
+    ansible.builtin.command: >-
+      nomad namespace apply
+      -description "Consul API Gateway (Option E service mesh)"
+      ingress
+    environment:
+      NOMAD_TOKEN: "{{ nomad_bootstrap_secret_id }}"
+      NOMAD_ADDR: "https://127.0.0.1:4646"
+      NOMAD_CACERT: "/etc/nomad.d/.tls/ca.crt"
+    changed_when: true
+
+  # Without this, the API Gateway job's `gateway` task hangs forever with
+  # "Missing: nomad.var.block(nomad/jobs/api-gateway/gateway/setup@ingress.global)"
+  # — Nomad's implicit per-task variable access only covers the exact path
+  # nomad/jobs/<job>/<group>/<task>, which doesn't match here (task name is
+  # "gateway", path's last segment is "setup"). `nomad acl policy apply` is
+  # create-or-update, so this is idempotent. See issue 5 in
+  # _context/wiki/api-gateway-envoy-bootstrap-troubleshooting.md.
+  - name: Apply Nomad ACL policy for API Gateway Nomad Variable access
+    ansible.builtin.shell: |
+      set -euo pipefail
+      nomad acl policy apply \
+        -namespace ingress -job api-gateway -group gateway -task gateway \
+        api-gateway-variables - <<'EOF'
+      namespace "ingress" {
+        variables {
+          path "nomad/jobs/api-gateway/gateway/*" {
+            capabilities = ["read"]
+          }
+        }
+      }
+      EOF
+    args:
+      executable: /bin/bash
+    environment:
+      NOMAD_TOKEN: "{{ nomad_bootstrap_secret_id }}"
+      NOMAD_ADDR: "https://127.0.0.1:4646"
+      NOMAD_CACERT: "/etc/nomad.d/.tls/ca.crt"
+    changed_when: true
+
+  roles:
+  - role: nomad_consul
+    vars:
+      nomad_consul_run_service_discovery: false
+      nomad_consul_run_workload_identity: false
+      nomad_consul_run_service_mesh: true
+      nomad_consul_gateway_namespace: "ingress"

@@ -25,6 +25,18 @@ client_count         = 2
 server_instance_type = "t3.micro"
 client_instance_type = "t3.medium"
 
+# For the Get Started tutorials (deploy_get_started.yaml), use a single
+# combined server+client node instead:
+# server_count = 1
+# client_count = 0
+
+# For Option E (service mesh + API Gateway, deploy_consul_nomad_mesh.yaml)
+# only: adds one dedicated public client that always runs the API Gateway,
+# tagged nomad_node_role=ingress — the only client whose security group
+# opens app-facing ports like 8447. Leave at the default (0) for every other
+# Option. See _context/wiki/dedicated-ingress-node-plan.md.
+# ingress_client_count = 1
+
 # SSH Configuration
 ssh_user = "ubuntu"
 
@@ -35,3 +47,11 @@ ssh_user = "ubuntu"
 #   { port = 9002, description = "Countdash example app - web UI" },
 #   { port = 8080, description = "My application" },
 # ]
+
+# Optional external Application Load Balancer, for the Load Balancer
+# Integrations tutorial (https://developer.hashicorp.com/nomad/tutorials/load-balancing).
+# Disabled by default. Creates a second, instance-free subnet (AWS requires
+# two AZs for an ALB) and forwards port 80 to load_balancer_target_port on
+# every Nomad client.
+# enable_load_balancer      = true
+# load_balancer_target_port = 9002

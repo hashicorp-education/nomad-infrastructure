@@ -87,7 +87,8 @@ ansible-playbook -i inventory.ini consul_nomad_service_discovery.yaml
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `nomad_consul_jwks_url` | First server HTTP address on port 4646 | JWKS URL Consul servers use to validate Nomad JWTs; point to a load balancer in production |
+| `nomad_consul_jwks_url` | First server HTTPS address on port 4646 | JWKS URL Consul servers use to validate Nomad JWTs; point to a load balancer in production. Uses `https://` by default since Nomad's HTTP API is TLS-only when `nomad_tls_enabled: true` |
+| `nomad_consul_jwks_ca_cert` | `""` (empty) | PEM-encoded CA certificate used to verify the TLS connection to `nomad_consul_jwks_url`. `consul_nomad_workload_identity.yaml` populates this automatically from the shared `ansible/.tls/ca.pem` when present |
 | `nomad_consul_auth_method_name` | `nomad-workloads` | Consul JWT auth method name |
 | `nomad_consul_tasks_role_name` | `nomad-tasks-default` | Consul ACL role for Nomad tasks in the default namespace |
 

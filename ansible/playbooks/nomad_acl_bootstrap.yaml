@@ -10,7 +10,8 @@
 
   vars:
     nomad_bin_path: "/usr/local/bin/nomad"
-    nomad_addr: "http://127.0.0.1:4646"
+    nomad_addr: "https://127.0.0.1:4646"
+    nomad_cacert: "/etc/nomad.d/.tls/ca.crt"
 
   tasks:
     - name: Check if Nomad is running
@@ -29,6 +30,7 @@
       ansible.builtin.command: "{{ nomad_bin_path }} acl bootstrap"
       environment:
         NOMAD_ADDR: "{{ nomad_addr }}"
+        NOMAD_CACERT: "{{ nomad_cacert }}"
       register: nomad_acl_bootstrap_result
       failed_when: false
       changed_when: nomad_acl_bootstrap_result.rc == 0

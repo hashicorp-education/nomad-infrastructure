@@ -3,7 +3,7 @@
 # https://github.com/hashicorp-education/learn-consul-nomad-vm/blob/main/shared/jobs/03.hashicups.nomad.hcl
 
 # Modified to remove the private node constraint. 
-# nginx task modified. Refer to _context/wiki/nginx-upstream-dns-startup-failure.md for details.
+# nginx task modified. 
 #-------------------------------------------------------------------------------
 
 
@@ -83,9 +83,9 @@ variable "public_api_port" {
   default = 8081
 }
 
-variable "nginx_port" {
-  description = "Nginx Port"
-  default = 80
+variable "nginx_tls_port" {
+  description = "Nginx HTTPS Port"
+  default = 443
 }
 
 variable "db_port" {
@@ -109,6 +109,7 @@ job "hashicups" {
   group "db" {
 
     count = 1
+    shutdown_delay = "10s"
 
     network {
       port "db" {
@@ -164,6 +165,7 @@ job "hashicups" {
   group "product-api" {
 
     count = 1
+    shutdown_delay = "10s"
 
     network {
       port "product-api" {
@@ -225,6 +227,7 @@ job "hashicups" {
   group "payments" {
 
     count = 1
+    shutdown_delay = "10s"
 
     network {
       port "payments-api" {
@@ -287,6 +290,7 @@ job "hashicups" {
   group "public-api" {
 
     count = 1
+    shutdown_delay = "10s"
 
     network {
       port "public-api" {
@@ -339,6 +343,7 @@ job "hashicups" {
   group "frontend" {
     
     count = 1
+    shutdown_delay = "10s"
 
     network {
       port "frontend" {
@@ -391,10 +396,11 @@ job "hashicups" {
   group "nginx" {
 
     count = 1
+    shutdown_delay = "10s"
 
     network {
-      port "nginx" {
-        static = var.nginx_port
+      port "nginx-tls" {
+        static = var.nginx_tls_port
       }
       dns {
       	servers = ["172.17.0.1"] 
@@ -403,16 +409,55 @@ job "hashicups" {
     service {
         name = "nginx"
         provider = "consul"
-        port = "nginx"
+        port = "nginx-tls"
         address  = attr.unique.platform.aws.public-hostname
         check {
-          name      = "NGINX ready"
-					type      = "http"
-          path			= "/health"
-					interval  = "5s"
-					timeout   = "5s"
+          name           = "NGINX ready"
+					type           = "http"
+          protocol       = "https"
+          tls_skip_verify = true
+          path			     = "/health"
+					interval       = "5s"
+					timeout        = "5s"
         }
       }
+
+    # --------------------------------------------------------------------------
+    #  Task "NGINX TLS Init"
+    #
+    #  Generates a self-signed certificate for the nginx HTTPS listener at
+    #  deploy time, writing it to the alloc directory (/alloc/tls), which is
+    #  automatically shared with every task in this group. Runs to completion
+    #  before the "nginx" task starts (non-sidecar prestart hook).
+    # --------------------------------------------------------------------------
+
+    task "nginx-tls-init" {
+      driver = "docker"
+
+      lifecycle {
+        hook    = "prestart"
+        sidecar = false
+      }
+
+      config {
+        image   = "nginx:alpine"
+        command = "sh"
+        args = [
+          "-c",
+          <<-EOT
+          set -e
+          apk add --no-cache openssl
+          mkdir -p /alloc/tls
+          openssl req -x509 -nodes -newkey rsa:2048 \
+            -keyout /alloc/tls/nginx.key \
+            -out /alloc/tls/nginx.crt \
+            -days 365 \
+            -subj "/CN=hashicups.local" \
+            -addext "subjectAltName=DNS:hashicups.local,IP:${NOMAD_IP_nginx_tls}"
+          EOT
+        ]
+      }
+    }
 
     # --------------------------------------------------------------------------
     #  Task "NGINX"
@@ -426,7 +471,7 @@ job "hashicups" {
       }
       config {
         image = "nginx:alpine"
-        ports = ["nginx"]
+        ports = ["nginx-tls"]
         mount {
           type   = "bind"
           source = "local/default.conf"
@@ -447,9 +492,11 @@ job "hashicups" {
           resolver_timeout 2s;
 
           server {
-            listen ${var.nginx_port};
-            server_name {{ env "NOMAD_IP_nginx" }};
+            listen ${var.nginx_tls_port} ssl;
+            server_name {{ env "NOMAD_IP_nginx_tls" }};
             server_tokens off;
+            ssl_certificate     /alloc/tls/nginx.crt;
+            ssl_certificate_key /alloc/tls/nginx.key;
             gzip on;
             gzip_proxied any;
             gzip_comp_level 4;

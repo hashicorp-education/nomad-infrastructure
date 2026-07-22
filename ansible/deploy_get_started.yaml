@@ -1,0 +1,56 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook: deploy_get_started.yaml
+#
+# Deploys a single-node Nomad agent (combined server+client, no Consul, no
+# TLS, no ACLs) for working through the "Get Started" tutorials at
+# https://developer.hashicorp.com/nomad/tutorials/get-started.
+#
+# Requires terraform/aws/terraform.tfvars to be set to:
+#   server_count = 1
+#   client_count = 0
+#
+# Sub-playbooks (in order):
+#   common_setup  — configure host, test connectivity
+#   get_started   — combined server+client Nomad agent, no TLS/ACL/Consul
+#
+# Usage:
+#   ansible-playbook -i inventory.ini deploy_get_started.yaml
+
+# ── Configure the host and test connectivity ─────────────────────────────────
+
+- name: Import common setup
+  ansible.builtin.import_playbook: playbooks/common_setup.yaml
+
+# ── Deploy the single-node Nomad agent ───────────────────────────────────────
+
+- name: Import get-started playbook
+  ansible.builtin.import_playbook: playbooks/get_started.yaml
+
+# ── Completion banner ─────────────────────────────────────────────────────────
+
+- name: Display Nomad UI access (no TLS in this scenario)
+  hosts: localhost
+  gather_facts: false
+  become: false
+  tasks:
+  - name: Display access details
+    ansible.builtin.debug:
+      msg:
+      - "=========================================="
+      - "Get Started Nomad Agent Ready!"
+      - "=========================================="
+      - ""
+      - "This is a single-node deployment with no Consul, no TLS, and no ACLs —"
+      - "equivalent to `nomad agent -dev`, for use with the Get Started tutorials:"
+      - "https://developer.hashicorp.com/nomad/tutorials/get-started"
+      - ""
+      - "SSH access:"
+      - "{% for host in groups['servers'] %}  ssh -o 'IdentitiesOnly=yes' -i ssh_key.pem ubuntu@{{ hostvars[host]['ansible_host'] }}  # {{ host }}{% endfor %}"
+      - ""
+      - "Nomad UI (plain HTTP — no cert warning to expect):"
+      - "{% for host in groups['servers'] %}  http://{{ hostvars[host]['ansible_host'] }}:4646{% endfor %}"
+      - ""
+      - "Set the environment variable for the CLI:"
+      - "{% for host in groups['servers'] %}  export NOMAD_ADDR=http://{{ hostvars[host]['ansible_host'] }}:4646{% endfor %}"

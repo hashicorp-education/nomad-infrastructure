@@ -49,7 +49,7 @@ Key variables in [variables.tf](variables.tf):
 ## Security-Safe Edits
 
 - `allowed_ssh_cidr` defaults to `0.0.0.0/0` — always flag this when reviewing PRs for non-dev environments.
-- Ports 4646 (Nomad UI) and 8500 (Consul UI) are open to `0.0.0.0/0` in [network.tf](network.tf). Refer to [ansible/README-SECURITY-GROUP.md](../../ansible/README-SECURITY-GROUP.md) for hardening steps.
+- Ports 4646 (Nomad UI, HTTPS by default), 8443 (Consul HTTPS UI/API), and 8500 (Consul plain HTTP, loopback only) are open to `0.0.0.0/0` (8500 is loopback-restricted at the Consul config layer, not the security group) in [network.tf](network.tf). TLS is enabled by default for both Consul and Nomad. Refer to [ansible/README-SECURITY-GROUP.md](../../ansible/README-SECURITY-GROUP.md) for hardening steps.
 - The SSH private key is written to `ansible/ssh_key.pem` by `local_sensitive_file`. Never commit it.
 - `terraform.tfvars` contains AWS credentials — it is git-ignored; never commit it.
 

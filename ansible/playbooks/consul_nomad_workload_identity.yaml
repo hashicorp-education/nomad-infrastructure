@@ -30,6 +30,20 @@
   vars:
     nomad_consul_run_service_discovery: false
     nomad_consul_run_workload_identity: true
+
+  pre_tasks:
+  - name: Check for shared TLS CA certificate
+    ansible.builtin.stat:
+      path: "{{ inventory_dir }}/.tls/ca.pem"
+    register: nomad_consul_ca_cert_stat
+    delegate_to: localhost
+    become: false
+
+  - name: Read shared TLS CA certificate for Consul JWKS validation
+    ansible.builtin.set_fact:
+      nomad_consul_jwks_ca_cert: "{{ lookup('file', inventory_dir + '/.tls/ca.pem') }}"
+    when: nomad_consul_ca_cert_stat.stat.exists
+
   roles:
   - role: nomad_consul
 
@@ -63,7 +77,7 @@
     nomad_acl_enabled: true
     nomad_log_level: "DEBUG"
     nomad_enable_debug: true
-    nomad_tls_enabled: false
+    nomad_tls_enabled: true
     nomad_consul_integration_enabled: true
     nomad_consul_workload_identity_enabled: true
     nomad_consul_address: "127.0.0.1:8500"

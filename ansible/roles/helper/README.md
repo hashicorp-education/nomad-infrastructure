@@ -21,7 +21,7 @@ makes playbooks cleaner and more maintainable by centralizing common patterns.
 |----------|------|---------|-------------|
 | `helper_apt_packages` | list | `[]` | APT packages to install (Debian/Ubuntu) |
 | `helper_yum_packages` | list | `[]` | YUM packages to install (RHEL/CentOS) |
-| `helper_file_copy_local` | list | `[]` | Files to copy from local to remote |
+| `helper_file_copy_local` | list | `[]` | Files to copy from local to remote. Each item supports an optional `notify: "<handler name>"` (e.g. `"Restart consul"`, `"Restart nomad"`) so a changed file (such as a regenerated TLS certificate) triggers a service restart to pick it up — without it, a running service keeps using the file it loaded at startup even after the on-disk copy changes. |
 | `helper_file_write_template` | list | `[]` | Templates to process and write |
 | `helper_file_write_content` | list | `[]` | Content to write directly to files |
 | `helper_file_write_content_local` | list | `[]` | Content to write to localhost |
@@ -66,6 +66,29 @@ This role is used in both server and client playbooks for various utility operat
         mode: "0644"
       - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}-key.pem"
         dst: "/etc/nomad.d/.tls/nomad.key"
+        mode: "0600"
+```
+
+**Consul playbooks** (`playbooks/consul_servers.yaml`, `playbooks/consul_clients.yaml`) — same pattern, owned by the `consul` user/group instead of root:
+```yaml
+- role: helper
+  when: consul_tls_enabled | bool
+  vars:
+    helper_file_copy_local:
+      - src: "{{ inventory_dir }}/.tls/ca.pem"
+        dst: "{{ consul_tls_dir }}/ca.pem"
+        owner: "{{ consul_user }}"
+        group: "{{ consul_group }}"
+        mode: "0644"
+      - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}.pem"
+        dst: "{{ consul_tls_dir }}/consul.pem"
+        owner: "{{ consul_user }}"
+        group: "{{ consul_group }}"
+        mode: "0644"
+      - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}-key.pem"
+        dst: "{{ consul_tls_dir }}/consul-key.pem"
+        owner: "{{ consul_user }}"
+        group: "{{ consul_group }}"
         mode: "0600"
 ```
 

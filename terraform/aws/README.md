@@ -12,7 +12,7 @@ graph TB
         subgraph VPC["VPC: 10.0.0.0/16"]
             IGW[Internet Gateway]
             RT[Route Table\n0.0.0.0/0 → IGW]
-            SG["Security Group\nPorts: 22, 8500, 4646\nAll internal traffic"]
+            SG["Security Group\nPorts: 22, 8500, 8443, 4646\nAll internal traffic"]
 
             subgraph Subnet["Public Subnet: 10.0.1.0/24"]
                 S1["Server 1\nUbuntu 24.04\nt3.medium · 50 GB gp3\nAutoJoinRole=server"]
@@ -56,11 +56,13 @@ graph TB
 | Direction | Port | Protocol | Source/Dest | Purpose |
 |-----------|------|----------|-------------|---------|
 | Ingress | 22 | TCP | `allowed_ssh_cidr` | SSH access |
-| Ingress | 8500 | TCP | `0.0.0.0/0` | Consul HTTP API & UI |
+| Ingress | 8500 | TCP | `0.0.0.0/0` | Consul HTTP API & UI (used only when TLS is disabled; TLS-enabled Consul serves plain HTTP on loopback only) |
+| Ingress | 8443 | TCP | `0.0.0.0/0` | Consul HTTPS API & UI |
+| Ingress | 4646 | TCP | `0.0.0.0/0` | Nomad HTTP(S) API & UI |
 | Ingress | all | all | Self (security group) | All internal cluster traffic |
 | Egress | all | all | `0.0.0.0/0` | All outbound traffic |
 
-Consul port 8500 and Nomad port 4646 are open to the internet by default. Restrict these for production deployments. Refer to [../README-SECURITY-GROUP.md](../README-SECURITY-GROUP.md).
+TLS is enabled by default for both Consul and Nomad. Consul ports 8443 and Nomad port 4646 are open to the internet by default. Restrict these for production deployments. Refer to [../README-SECURITY-GROUP.md](../README-SECURITY-GROUP.md).
 
 **Note:** Nomad ports 4647 (RPC) and 4648 (Serf) are covered by the `self` rule that allows all internal traffic within the security group.
 
@@ -109,7 +111,8 @@ ManagedBy   = "Terraform"
 | `server_private_ips` | List of server private IPs |
 | `client_public_ips` | List of client public IPs |
 | `client_private_ips` | List of client private IPs |
-| `nomad_ui_urls` | Nomad UI URLs (`http://<ip>:4646`) |
+| `consul_ui_urls` | Consul UI URLs (`https://<ip>:8443`) |
+| `nomad_ui_urls` | Nomad UI URLs (`https://<ip>:4646`) |
 | `ssh_commands` | Ready-to-use SSH commands |
 | `ssh_private_key_path` | Path to generated SSH key |
 
