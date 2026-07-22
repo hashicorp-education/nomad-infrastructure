@@ -668,6 +668,16 @@ E should leave it at `0`. If you already provisioned without it, edit
 `terraform.tfvars` and re-run `terraform apply` — it's additive (adds one
 instance and one security group, doesn't touch existing servers/clients).
 
+> **Multipass**: `ingress_client_count` also exists in
+> `terraform/multipass/`, provisioning a client tagged
+> `nomad_node_role=ingress` the same way — but since Multipass has no
+> security-group equivalent, it only affects Nomad scheduling, not network
+> access. Countdash works end-to-end there; HashiCups does not —
+> `hashicorpdemoapp/payments` has no arm64 build and crash-loops with `exec
+> format error` on Apple Silicon. See
+> [`_context/wiki/dedicated-ingress-node-plan.md`](_context/wiki/dedicated-ingress-node-plan.md)'s
+> addendum.
+
 Extends Option D by enabling Consul service mesh cluster-wide:
 
 - Consul servers and clients are reconfigured with `connect.enabled = true` and

@@ -28,11 +28,22 @@ key-pair object, so your existing key is injected via cloud-init instead.
 | `local_file` (cloudinit) | 1 | Rendered cloud-init user-data appending your SSH public key to the `ubuntu` user |
 | `multipass_instance` (servers) | 3 (default) | Ubuntu 24.04, 2 CPUs, 4GB RAM, 10GB disk |
 | `multipass_instance` (clients) | 2 (default) | Ubuntu 24.04, 2 CPUs, 4GB RAM, 10GB disk |
+| `multipass_instance` (ingress clients) | 0 (default) | Same spec as clients; only provisioned when `ingress_client_count > 0` (Option E only) |
 | `local_file` (inventory) | 1 | `../../ansible/inventory.ini` (same path [../aws/](../aws/) writes to) |
 
 No AMI, security group, IAM role, VPC, or subnet resources — Multipass has
 no equivalent objects. VMs are reachable directly from the host over
 Multipass's own virtual network.
+
+**Option E (service mesh + API Gateway)**: set `ingress_client_count = 1` in
+`terraform.tfvars` before `terraform apply`. This provisions one extra
+client tagged `nomad_node_role=ingress` in the generated inventory, which
+`api-gateway.nomad.hcl`'s `constraint` block requires to schedule. Unlike
+[../aws/](../aws/)'s identically-named variable, this has **no effect on
+network access** — Multipass has no security-group equivalent, so every
+VM's ports are already reachable from the host regardless of this setting.
+It exists purely so the API Gateway has a node to consistently land on. See
+[`../../_context/wiki/dedicated-ingress-node-plan.md`](../../_context/wiki/dedicated-ingress-node-plan.md).
 
 **Run AWS or Multipass, never both at the same time.** Both workspaces
 generate `ansible/inventory.ini`, so applying one overwrites the other's

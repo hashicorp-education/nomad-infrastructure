@@ -18,7 +18,24 @@ We tested this infrastructure with the following versions:
 
 ## Overview
 
-This project provisions a production-ready cluster of **three servers and two clients** on AWS. Every node runs co-located Consul and Nomad agents, providing a service-discovery and service-mesh layer (Consul) alongside a workload-orchestration layer (Nomad) on the same infrastructure.
+This project provisions a production-ready cluster of three servers and two
+clients on AWS or locally with Multipass. Every node runs co-located Consul and
+Nomad agents, providing a service-discovery and service-mesh layer (Consul)
+alongside a workload-orchestration layer (Nomad) on the same infrastructure.
+
+Repo purpose:
+
+- Education engineers and tech writers can spin up an AWS or Multipass cluster for learning the products and testing features.
+- Use in conjunction with a tutorial. Modify tutorials to instruct user what playbook to run to create environment for tutorial.
+- Use to spin up a cluster in Instruqt sandbox (TBD since full cluster creation takes 15 mins).
+
+Goals:
+
+- Definable, repeatable infrastructure creation/destroy with Terraform
+- Definable, repeatable cluster creation/teardown with Ansible
+- Modular approach with top-level playbooks that call playbooks relevant to the
+use case.
+- Expandable in the future to add more playbooks for new scenarios.
 
 **[Complete Deployment Guide](DEPLOY_CLUSTER_GUIDE.MD)** — Step-by-step instructions for deploying your cluster.
 
@@ -26,7 +43,7 @@ This project provisions a production-ready cluster of **three servers and two cl
 
 | Layer | Technology | Version |
 |-------|-----------|---------|
-| Service discovery & mesh | HashiCorp Consul | 2.0.1 |
+| Service discovery & mesh | HashiCorp Consul | 2.0.2 |
 | Workload orchestration | HashiCorp Nomad | 2.0.4 |
 | Container runtime | Docker CE | latest |
 | Container networking | CNI plugins | (clients only) |

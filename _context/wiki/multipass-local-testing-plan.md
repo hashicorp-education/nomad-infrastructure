@@ -1,6 +1,6 @@
 # Plan: Local Mac testing with Terraform + Multipass
 
-**Status: Phases 0-3 complete.** `terraform/multipass/` workspace built and applied (5 VMs running: 3 servers + 2 clients). `deploy_consul_nomad_sd.yaml` runs clean against `ansible/inventory.ini` (Terraform writes directly here, not a separate `inventory.multipass.ini` as originally planned in §1 — simpler, and there's no AWS inventory to collide with on a pure-local checkout). Consul + Nomad clusters are up with ACLs and TLS. See "Confirmed gotcha" under Open Risks below for a real failure mode hit during Phase 3 and its fix.
+**Status: Phases 0-3 complete. Options D, E, and F additionally live-verified on Multipass, 2026-07-22 (see bottom of this page).** `terraform/multipass/` workspace built and applied (5 VMs running: 3 servers + 2 clients). `deploy_consul_nomad_sd.yaml` runs clean against `ansible/inventory.ini` (Terraform writes directly here, not a separate `inventory.multipass.ini` as originally planned in §1 — simpler, and there's no AWS inventory to collide with on a pure-local checkout). Consul + Nomad clusters are up with ACLs and TLS. See "Confirmed gotcha" under Open Risks below for a real failure mode hit during Phase 3 and its fix.
 
 Goal: let a developer on an Apple Silicon Mac stand up the same Nomad (+
 optionally Consul/Vault) cluster this repo builds on AWS, but on local
@@ -67,8 +67,9 @@ entrypoint that imports them (`deploy_consul.yaml`,
 in behavior since `consul_use_aws_cloud_join` is undefined for AWS runs today.
 
 `ansible/playbooks/consul_nomad_service_mesh.yaml` (Option E only, not needed
-for Scenario C) still hardcodes `true` in two places and was intentionally
-left unchanged — apply the same fix there if Option E is needed locally later.
+for Scenario C) hardcoded `true` in two places and was intentionally left
+unchanged at the time this section was written. **Update 2026-07-22: fixed
+and live-verified** — see the "Options D, E, F live-verified" section below.
 
 Because Scenario C (`deploy_consul_nomad_sd.yaml`) is the user's chosen first
 validation target, this fix is required for **Phase 1**, not deferred to an
@@ -203,3 +204,61 @@ These can't be fully resolved from reading code — they need a real `terraform 
 5. **macOS permission prompts** — first `multipass launch` may trigger a
    system dialog for networking/virtualization permissions; this is a one-time
    manual step, not something Terraform can automate.
+
+---
+
+## Options D, E, F live-verified on Multipass (2026-07-22)
+
+Prompted by gaps `TEST_PLAN.md` (written for PR #1 review) flagged in the
+platform-support matrix — see the full plan and rationale in
+[dedicated-ingress-node-plan.md](dedicated-ingress-node-plan.md)'s Option E
+addendum. Summary here; that page has the fuller writeup for Option E
+specifically.
+
+**Option D** (workload identity) — no code changes needed, first live pass.
+`deploy_consul_nomad_wi.yaml` clean (`failed=0`), JWT auth method + binding
+rules correct, Consul-SD Countdash redeployed successfully via workload
+identity (`HTTP 200`).
+
+**Option E** (service mesh + API Gateway) — required a real fix:
+`consul_nomad_service_mesh.yaml` hardcoded AWS cloud auto-join (see update
+above), and `terraform/multipass/` had no `ingress_client_count` to
+provision the dedicated ingress node. Fixed and live-verified: `failed=0`
+across all 6 hosts, gateway consistently scheduled on the ingress node,
+Countdash reachable through it. HashiCups could not be verified —
+`hashicorpdemoapp/payments` has no arm64 build (confirmed via `docker
+manifest inspect`) and crash-loops with `exec format error` on this Apple
+Silicon hardware; documented as a known vendor-image gap, not fixed.
+
+**Option F** (Nomad + Vault) — no code changes anticipated, but a real bug
+surfaced on first live pass: Vault 1.20+ requires `disable_mlock` set
+explicitly (`true`/`false`) or `vault.service` crash-loops with
+`disable_mlock must be configured 'true' or 'false'`. Fixed in
+`ansible/roles/vault/templates/vault.hcl.j2` /
+`ansible/roles/vault/defaults/main.yaml` (new `vault_disable_mlock` default,
+`false`, since this role runs Vault as root specifically so `mlock()`
+succeeds without `CAP_IPC_LOCK`). **Not Multipass-specific** — would have
+hit AWS too, just hadn't been exercised live before. After the fix: Vault
+initialized, unsealed on all 3 servers, JWT auth method + KV engine
+correct, a test job with a `vault {}` block fetched a real secret with zero
+static token.
+
+**New confirmed gotcha**: a server that just joined the Raft cluster can
+transiently fail its *first* `vault operator unseal` attempt (stays sealed,
+`Unseal Progress 0/1`, non-zero exit) even with the correct key — resolved
+by simply re-running `vault_servers.yaml` (idempotent; only unseals servers
+still sealed). Root cause not fully isolated (looks like a brief window
+right after Raft join where the node isn't fully ready to process the
+unseal RPC); noted here in case it recurs.
+
+**Also hit and worked around, not a code bug**: right after a rapid
+`terraform destroy` → `terraform apply` cycle, the Multipass daemon itself
+got stuck reporting all VMs as `Unknown` state indefinitely, even though
+the underlying QEMU processes were running fine — Terraform's own
+`multipass_instance` creation calls timed out waiting for a response,
+leaving VMs that existed in Multipass but not in Terraform state. Fixed via
+the documented escape hatch, `multipass delete --all --purge`, then
+re-running `terraform apply` cleanly. If `multipass list` ever shows every
+VM stuck in `Unknown` with no IPs, this is likely the same daemon hiccup —
+try the purge-and-retry before assuming the Terraform/Ansible code is at
+fault.

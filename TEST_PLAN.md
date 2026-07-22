@@ -14,23 +14,46 @@ replacement for that guide.
 | A — Consul only | ✅ | ✅ | |
 | B — Nomad only | ✅ | ✅ | Nomad's `retry_join` never uses cloud auto-join, on either platform |
 | C — Consul + Nomad + service discovery | ✅ | ✅ **verified** | Confirmed clean end-to-end run per [`_context/wiki/multipass-local-testing-plan.md`](_context/wiki/multipass-local-testing-plan.md) |
-| D — + workload identity | ✅ | ⚠️ expected to work, **not yet explicitly verified live** | No AWS-only code path added on top of C; worth a live pass as part of this review |
-| E — + service mesh + API Gateway | ✅ | ❌ **not supported** | See "Known gap" below |
-| F — Nomad + Vault | ✅ | ⚠️ expected to work, **not yet explicitly verified live** | No AWS-only code path; worth a live pass as part of this review |
+| D — + workload identity | ✅ | ✅ **verified** | Live-verified 2026-07-22: `deploy_consul_nomad_wi.yaml` clean (`failed=0`), JWT auth method + binding rules correct, Consul-SD Countdash redeployed successfully via workload identity |
+| E — + service mesh + API Gateway | ✅ | ✅ **verified (Countdash only — see caveat)** | Live-verified 2026-07-22 after a code fix — see below |
+| F — Nomad + Vault | ✅ | ✅ **verified** | Live-verified 2026-07-22 after a code fix — see below |
 
-### Known gap: Option E does not run on Multipass
+### Option E on Multipass — now supported, with a caveat
 
-`ansible/playbooks/consul_nomad_service_mesh.yaml` hardcodes
-`consul_cloud_auto_join_enabled: true` on both the server and client plays
-(unlike every other Consul-touching playbook in this repo, which reads
-`consul_use_aws_cloud_join` from the inventory and defaults to `false` on
-Multipass). That renders a Consul `retry_join` against the AWS EC2 API, which
-doesn't exist on Multipass VMs. Separately, `terraform/multipass/variables.tf`
-has no `ingress_client_count` equivalent, so the dedicated public ingress
-client Option E depends on can't even be provisioned there. **Test Option E
-on AWS only** — do not spend review time trying it on Multipass; this is a
-pre-existing gap, not something to file as a new bug during this review
-(though a follow-up issue to fix it would be welcome).
+Fixed as of this PR: `ansible/playbooks/consul_nomad_service_mesh.yaml`'s
+hardcoded `consul_cloud_auto_join_enabled: true` now reads
+`consul_use_aws_cloud_join` like every other Consul playbook, and
+`terraform/multipass/` gained an `ingress_client_count` variable mirroring
+`terraform/aws/`'s (tagging-only — Multipass has no security-group
+equivalent, so unlike AWS this doesn't isolate any ports). Live-verified
+2026-07-22: `deploy_consul_nomad_mesh.yaml` clean (`failed=0`) across all 6
+hosts, `consul.connect = true` on every client, `meta.nodeRole = ingress` on
+exactly the dedicated node, 3/3 gateway redeploys landed there, Countdash
+reachable through the gateway (`HTTP 200` on 8447).
+
+**Caveat — HashiCups does not run on this Apple Silicon Multipass setup**:
+`hashicorpdemoapp/payments`'s Docker image has no arm64 build (confirmed via
+`docker manifest inspect` — a single-architecture manifest, not a multi-arch
+list), so it crash-loops with `exec format error`; `public-api`'s deployment
+also fails its health check as a downstream consequence. `db`, `product-api`,
+`frontend`, and `nginx` all start healthy. This is a vendor-image gap
+(HashiCorp doesn't publish an arm64 tag for `payments`), not something fixable
+in this repo's code short of adding QEMU/binfmt emulation to the Multipass
+VMs — out of scope here. **Only test HashiCups on AWS**; Countdash's
+dual-listener behavior on Multipass is still a valid, fully-verified test of
+this PR's ingress-node/dual-listener change.
+
+### Vault (Option F) — one bug found and fixed
+
+Vault 1.20+ requires `disable_mlock` to be explicitly set (`true` or
+`false`) — it no longer silently defaults, and `vault.service` crash-looped
+on every server with `disable_mlock must be configured 'true' or 'false'`
+until fixed in `ansible/roles/vault/templates/vault.hcl.j2` /
+`defaults/main.yaml`. This is not Multipass-specific and would have hit AWS
+too; it just hadn't been exercised live before this review. Also observed:
+a freshly-Raft-joined server's *first* unseal attempt can transiently fail
+(succeeds on an idempotent re-run of `vault_servers.yaml`) — noted in case
+reviewers hit the same thing.
 
 ## Prerequisites (both platforms)
 
@@ -66,7 +89,7 @@ terraform apply
 multipass list   # confirm VMs are running
 ```
 
-See [`terraform/multipass/README.md`](terraform/multipass/README.md) for
+Refer to [`terraform/multipass/README.md`](terraform/multipass/README.md) for
 full detail. **Run AWS or Multipass, never both at once** — both workspaces
 write to the same `ansible/inventory.ini`.
 
@@ -135,24 +158,30 @@ Full detail: [Option D](DEPLOY_CLUSTER_GUIDE.md#option-d-consul--nomad-with-serv
 - [ ] `consul acl auth-method read nomad-workloads` — `Config.JWKSUrl` points at the correct first server's private IP
 - [ ] `consul acl binding-rule list` shows rules for the `nomad_service` and task workload selectors
 - [ ] Redeploy the Consul-SD Countdash job from Scenario C and confirm it still works (now via workload identity, no static token)
-- [ ] **Multipass only**: this is the "not yet explicitly verified" combination flagged in the platform matrix above — please note pass/fail explicitly in review feedback
 
-### Scenario E — + service mesh + API Gateway (AWS only)
+Live-verified on Multipass 2026-07-22: clean run, JWKS URL correct, both
+binding rules present, Countdash redeployed and returned `HTTP 200`.
+
+### Scenario E — + service mesh + API Gateway (both platforms — see HashiCups caveat for Multipass)
 
 Full detail: [Option E](DEPLOY_CLUSTER_GUIDE.md#option-e-consul--nomad-with-service-discovery-workload-identity-and-service-mesh----deploy_consul_nomad_meshyaml)
 and [`nomad-jobs/consul-mesh/README.md`](nomad-jobs/consul-mesh/README.md)
 for the application-level deploy steps (service-defaults → intentions → TLS
 cert → gateway listener → http-route → mesh app job → API Gateway job).
 
-- [ ] `terraform.tfvars`: `ingress_client_count = 1` **set before** `terraform apply` (adds the dedicated public ingress client + security group)
+- [ ] `terraform.tfvars`: `ingress_client_count = 1` **set before** `terraform apply` (AWS: adds the dedicated public ingress client + security group; Multipass: adds the dedicated ingress client VM, tagging only — no security-group equivalent exists)
 - [ ] `ansible-playbook -i inventory.ini deploy_consul_nomad_mesh.yaml` completes with `failed=0`
 - [ ] `nomad node status -verbose <node-id> | grep consul.connect` → `true` on every client
 - [ ] `nomad node status -verbose <node-id> | grep nodeRole` → `meta.nodeRole = ingress` on exactly one client
-- [ ] Deploy Countdash (`countdash-transparent-proxy.nomad.hcl`) and HashiCups (`hashicups-consul-service-mesh.nomad.hcl`) mesh jobs plus the API Gateway per the mesh README
+- [ ] Deploy Countdash (`countdash-transparent-proxy.nomad.hcl`) plus the API Gateway per the mesh README
 - [ ] `https://<ingress-client-ip>:8447/` — Countdash loads, backend counting service reachable
-- [ ] `https://<ingress-client-ip>:8448/` — HashiCups loads, all services reachable
-- [ ] Both URLs work **simultaneously** in separate browser tabs (this is the dual-listener change this PR adds — confirm it's not still exclusive/path-based)
-- [ ] `curl -k https://<internal-client-ip>:8447/` from outside the VPC times out or refuses (confirms the ingress-only security-group split — app ports must not be reachable on the non-ingress clients)
+- [ ] **AWS only**: also deploy HashiCups (`hashicups-consul-service-mesh.nomad.hcl`); `https://<ingress-client-ip>:8448/` loads, all services reachable; both URLs work **simultaneously** in separate browser tabs (this is the dual-listener change this PR adds — confirm it's not still exclusive/path-based). **Skip HashiCups on Multipass** — `hashicorpdemoapp/payments` has no arm64 build and will crash-loop (`exec format error`); this is a known vendor-image gap, not a regression to report
+- [ ] **AWS only**: `curl -k https://<internal-client-ip>:8447/` from outside the VPC times out or refuses (confirms the ingress-only security-group split — app ports must not be reachable on the non-ingress clients). **Not applicable on Multipass** — there's no security-group equivalent, so every VM's ports are always reachable from the host regardless of `ingress_client_count`
+
+Live-verified on Multipass 2026-07-22 (Countdash path only, per the caveat
+above): clean run across all 6 hosts, `consul.connect` and `nodeRole`
+correct, 3/3 gateway redeploys landed on the ingress node, Countdash
+returned `HTTP 200` through the gateway.
 
 ### Scenario F — Nomad + Vault (workload identity)
 
@@ -164,13 +193,23 @@ Full detail: [Option F](DEPLOY_CLUSTER_GUIDE.md#option-f-nomad--vault-with-workl
 - [ ] `vault auth list` includes `jwt-nomad/`
 - [ ] `vault secrets list` includes `secret/`
 - [ ] Run a job with a `vault {}` block, confirm it fetches a secret with no static Vault token in the job spec
-- [ ] **Multipass only**: not yet explicitly verified — please note pass/fail explicitly in review feedback
+
+Live-verified on Multipass 2026-07-22, after fixing a real bug this
+exposed: Vault 1.20+ requires `disable_mlock` to be set explicitly, which
+crash-looped every server until fixed in the `vault` role's template/defaults
+(not Multipass-specific — see the platform matrix note above). Also saw a
+transient unseal race on a freshly-joined server, resolved by re-running the
+idempotent `vault_servers.yaml`. After the fix: `vault status`, `vault auth
+list`, `vault secrets list` all correct, and a `raw_exec`/`docker` test job
+with a `vault {}` block fetched a real `secret/data/nomad/test` value with
+zero static token.
 
 ---
 
 ## Cross-cutting checks (either platform, any scenario)
 
 - [ ] `ansible-playbook -i inventory.ini teardown.yaml` completes with `failed=0` on **all** hosts, including any host that ran a mesh/Docker workload during this review (this PR fixes two "Device or resource busy" teardown failures — leftover Nomad alloc `secrets/` tmpfs mounts and leftover Docker overlay2/shm mounts — worth deliberately testing teardown right after a scenario that ran containers, e.g. C, E, or F, to exercise the fix)
+  - Note: `teardown.yaml` predates the Vault role and doesn't stop/remove `vault.service` or its data — not blocking today since this repo's workflow always follows teardown with a full `terraform destroy` (which erases the VM regardless), but worth knowing if you ever want to tear down Vault without destroying the VMs
 - [ ] `source ./set-cluster-env.sh` / `source ./unset-cluster-env.sh` — exports/unsets only the variables whose token files exist for the scenario just run
 - [ ] Self-signed CA warning appears in-browser for both UIs as described in [Access the UIs](DEPLOY_CLUSTER_GUIDE.md#access-the-uis); Firefox's click-through works without importing the CA
 

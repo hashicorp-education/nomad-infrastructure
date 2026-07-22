@@ -17,3 +17,11 @@ ssh_private_key_path = "~/.ssh/id_ed25519"
 # For a single combined server+client node (mirrors deploy_get_started.yaml on AWS):
 # server_count = 1
 # client_count = 0
+
+# For Option E (service mesh + API Gateway, deploy_consul_nomad_mesh.yaml)
+# only: adds one dedicated client tagged nomad_node_role=ingress, which the
+# API Gateway job is constrained to schedule on. Leave at the default (0)
+# for every other Option. Unlike terraform/aws/, this has no security-group
+# effect — every VM's ports are already reachable from the host on
+# Multipass. See _context/wiki/dedicated-ingress-node-plan.md.
+# ingress_client_count = 1

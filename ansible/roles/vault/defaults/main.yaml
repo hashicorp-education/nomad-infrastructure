@@ -29,6 +29,15 @@ vault_log_level: "info"
 # TLS configuration
 vault_tls_enabled: true
 
+# Vault 1.20+ requires disable_mlock to be explicitly set (true or false) —
+# it no longer silently defaults, and vault.service fails to start with
+# "disable_mlock must be configured 'true' or 'false'" if omitted. Defaults
+# to false (mlock enabled) since this role already runs Vault as root (see
+# vault_user above) specifically so mlock() succeeds without granting
+# CAP_IPC_LOCK — see ansible/roles/vault/README.md's "Security notes"
+# section. Setting this true would silently give up that protection.
+vault_disable_mlock: false
+
 # Cloud auto-join configuration (AWS) for Raft retry_join.
 # When false, retry_join is built from the private IPs of every other host
 # in the `servers` group (same fallback pattern as the nomad/consul roles).

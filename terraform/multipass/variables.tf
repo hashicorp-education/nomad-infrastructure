@@ -18,6 +18,12 @@ variable "client_count" {
   default     = 2
 }
 
+variable "ingress_client_count" {
+  description = "Number of dedicated public ingress Nomad client VMs (run the Consul API Gateway for Option E; tagged nomad_node_role=ingress in the generated inventory). Defaults to 0 — only set this to 1+ in terraform.tfvars when you specifically intend to run Option E (service mesh). Unlike terraform/aws/, Multipass has no security-group equivalent, so this variable only affects Nomad scheduling metadata (which VM the API Gateway's constraint lets it land on) — every VM's ports are already reachable from the host regardless. See _context/wiki/dedicated-ingress-node-plan.md."
+  type        = number
+  default     = 0
+}
+
 variable "vm_cpus" {
   description = "Number of CPUs per VM"
   type        = number

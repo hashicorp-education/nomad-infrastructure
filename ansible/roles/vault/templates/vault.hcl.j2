@@ -8,6 +8,8 @@ ui = {{ vault_ui_enabled | lower }}
 
 log_level = "{{ vault_log_level }}"
 
+disable_mlock = {{ vault_disable_mlock | lower }}
+
 storage "raft" {
   path    = "{{ vault_data_dir }}"
   node_id = "{{ vault_node_name }}"

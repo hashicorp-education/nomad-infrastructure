@@ -23,8 +23,11 @@ The API Gateway job always schedules onto a dedicated public ingress Nomad
 client — see [Viewing the app in your web
 browser](#viewing-the-app-in-your-web-browser) below and
 [`_context/wiki/dedicated-ingress-node-plan.md`](../../_context/wiki/dedicated-ingress-node-plan.md).
-Port 8447 is opened automatically on that node's security group by
-Terraform (`aws_security_group.ingress_sg`) — no manual step needed here.
+On AWS, ports 8447/8448 are opened automatically on that node's security
+group by Terraform (`aws_security_group.ingress_sg`) — no manual step
+needed here. On Multipass there is no security-group equivalent, so this
+step doesn't apply at all — every VM's ports are already reachable from the
+host once `ingress_client_count = 1` provisions the node.
 
 Confirm the ingress client exists and is tagged before continuing:
 

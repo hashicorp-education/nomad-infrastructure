@@ -66,7 +66,7 @@
     consul_datacenter: "dc1"
     consul_log_level: "INFO"
     consul_ui_enabled: true
-    consul_cloud_auto_join_enabled: true
+    consul_cloud_auto_join_enabled: "{{ consul_use_aws_cloud_join | default(true) | bool }}"
     consul_cloud_auto_join_tag_key: "AutoJoinRole"
     consul_cloud_auto_join_tag_value: "server"
     consul_acl_enabled: true
@@ -110,7 +110,7 @@
     consul_server_enabled: false
     consul_datacenter: "dc1"
     consul_log_level: "INFO"
-    consul_cloud_auto_join_enabled: true
+    consul_cloud_auto_join_enabled: "{{ consul_use_aws_cloud_join | default(true) | bool }}"
     consul_cloud_auto_join_tag_key: "AutoJoinRole"
     consul_cloud_auto_join_tag_value: "server"
     consul_acl_enabled: true

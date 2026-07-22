@@ -72,6 +72,11 @@ Vault's official hardening guide:
   `vault_servers.yaml`) instead of Shamir's default 5-of-3, and no
   auto-unseal/KMS integration. Do not reuse this initialization pattern for a
   production Vault cluster.
+- **`disable_mlock = false`** (`vault_disable_mlock` default) — Vault 1.20+
+  requires this set explicitly or `vault.service` fails to start
+  (`disable_mlock must be configured 'true' or 'false'`). Kept `false`
+  specifically because this role runs Vault as root (above), which is what
+  lets `mlock()` succeed without granting `CAP_IPC_LOCK`.
 
 ## Example usage
 

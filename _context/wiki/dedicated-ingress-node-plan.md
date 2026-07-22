@@ -389,3 +389,58 @@ Files touched beyond the ones listed in this plan's Implementation section:
 `nomad-jobs/consul-mesh/api-gateway.nomad.hcl`,
 `terraform/aws/network.tf`, `nomad-jobs/consul-mesh/README.md`,
 `DEPLOY_CLUSTER_GUIDE.md`.
+
+## Addendum: Option E now works on Multipass too (2026-07-22)
+
+This plan's Option E work had only ever run on AWS. `TEST_PLAN.md` (written
+for PR #1 review) surfaced why it didn't work on Multipass at all:
+`ansible/playbooks/consul_nomad_service_mesh.yaml` hardcoded
+`consul_cloud_auto_join_enabled: true` (unlike every other Consul playbook
+in this repo, which reads an overridable `consul_use_aws_cloud_join`), so
+Consul tried to `retry_join` against the AWS EC2 API on Multipass VMs. And
+`terraform/multipass/` had no `ingress_client_count` equivalent, so the
+dedicated ingress node this plan's `constraint` block requires couldn't be
+provisioned there at all.
+
+**Fix**: the same two-line `consul_cloud_auto_join_enabled` pattern applied
+to `consul_nomad_service_mesh.yaml`, plus `terraform/multipass/` gaining
+`ingress_client_count` (`variables.tf`, `compute.tf`'s new
+`multipass_instance.ingress_clients` + merged inventory map,
+`inventory.tpl`'s `nomad_node_role` field, `outputs.tf`,
+`terraform.tfvars.example`, `README.md`) — mirroring `terraform/aws/`'s
+shape exactly, with one deliberate difference: **Multipass has no
+security-group equivalent**, so `ingress_client_count` there only affects
+Nomad scheduling metadata (`meta.nodeRole`), not network access — every
+VM's ports are already reachable from the host regardless.
+
+**Verified live on Multipass, 2026-07-22**: `deploy_consul_nomad_mesh.yaml`
+completed `failed=0` across all 6 hosts (this is the real test of the fix —
+it would have failed here with an AWS API error under the old hardcode).
+`consul.connect = true` on every client, `meta.nodeRole = ingress` on
+exactly the dedicated node, 3/3 gateway redeploys landed there, Countdash
+reachable through the gateway (`HTTP 200` on 8447).
+
+**Known limitation, not fixed here**: HashiCups' `hashicorpdemoapp/payments`
+Docker image has no arm64 build (confirmed via `docker manifest inspect` —
+single-architecture manifest, not a multi-arch list) and crash-loops with
+`exec format error` on Apple Silicon Multipass VMs; `public-api`'s
+deployment also fails as a downstream consequence. `db`, `product-api`,
+`frontend`, and `nginx` all start healthy. This is a vendor-image gap
+(same class of issue as `countdash-multipass-multiarch-fix.md`, but no
+arm64 tag exists to switch to this time), not something fixable in this
+repo's code short of adding QEMU/binfmt emulation to the Multipass VMs. The
+dual-listener change itself is still fully verified via Countdash alone —
+HashiCups is only affected by this pre-existing, unrelated image gap.
+
+**Also found and fixed along the way** (Option F, live-verified in the same
+session): Vault 1.20+ requires `disable_mlock` set explicitly or
+`vault.service` crash-loops — fixed in `ansible/roles/vault/`. Not
+Multipass-specific; would have hit AWS too, just hadn't been exercised live
+before. See `_context/wiki/multipass-local-testing-plan.md` for the fuller
+writeup of both the Vault fix and the Option D/F verification.
+
+Files touched: `ansible/playbooks/consul_nomad_service_mesh.yaml`,
+`terraform/multipass/{variables.tf,compute.tf,inventory.tpl,outputs.tf,
+terraform.tfvars.example,README.md}`,
+`nomad-jobs/consul-mesh/README.md`,
+`ansible/roles/vault/{defaults/main.yaml,templates/vault.hcl.j2,README.md}`.

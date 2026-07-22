@@ -6,8 +6,16 @@ output "server_ips" {
 }
 
 output "client_ips" {
-  description = "IPv4 addresses of client VMs"
-  value       = { for instance in multipass_instance.clients : instance.name => instance.ipv4 }
+  description = "IPv4 addresses of every client VM, internal and ingress"
+  value = merge(
+    { for instance in multipass_instance.clients : instance.name => instance.ipv4 },
+    { for instance in multipass_instance.ingress_clients : instance.name => instance.ipv4 }
+  )
+}
+
+output "ingress_client_ips" {
+  description = "IPv4 addresses of the dedicated ingress client VM(s) (Option E's API Gateway)"
+  value       = { for instance in multipass_instance.ingress_clients : instance.name => instance.ipv4 }
 }
 
 output "consul_ui_urls" {
@@ -36,6 +44,9 @@ output "ssh_instructions" {
 
     Clients:
     %{for instance in multipass_instance.clients~}
+      ssh -o 'IdentitiesOnly=yes' -i ${var.ssh_private_key_path} ${var.ssh_user}@${instance.ipv4}  # ${instance.name}
+    %{endfor~}
+    %{for instance in multipass_instance.ingress_clients~}
       ssh -o 'IdentitiesOnly=yes' -i ${var.ssh_private_key_path} ${var.ssh_user}@${instance.ipv4}  # ${instance.name}
     %{endfor~}
   EOT
