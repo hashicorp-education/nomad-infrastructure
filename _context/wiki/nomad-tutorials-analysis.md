@@ -741,7 +741,7 @@ All images verified live against Docker Hub or GHCR manifests.
 | `hashicorpdev/counter-dashboard:v3` | ❌ amd64 only | |
 
 
-> Note about Countdash, which is `counter-api` and `counter-dashboard` Docker
+> From Aimee: Note about Countdash, which is `counter-api` and `counter-dashboard` Docker
 > images. `v3` and `latest` are not multi-arch images. DockerHub
 > does have arm64 images that append the OS architecture (`v3-arm64`,
 > `v3-amd64`). So we solved the architecture issue in the
