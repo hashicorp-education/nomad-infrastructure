@@ -245,7 +245,7 @@ Matches the sibling repo's proven syntax exactly.
 
 Implemented exactly as planned in §1–4, with two adjustments discovered
 only once implementation started — both against the live 3-server/3-client
-AWS cluster (Consul v2.0.1, Nomad v2.0.4):
+AWS cluster (Consul v2.0.2, Nomad v2.0.4):
 
 **Adjustment 1 — a real bug in `consul_nomad_api_gateway.yaml` that would
 have quietly defeated the whole plan.** That "shortcut" playbook imported

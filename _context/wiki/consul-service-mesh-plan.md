@@ -85,9 +85,10 @@ of workload) needs a new binding rule (see [§5](#5-consul-acl-changes)).
 
 ```mermaid
 flowchart LR
-    Browser -->|HTTPS 8447| GW[Consul API Gateway<br/>Envoy, ns=ingress]
+    Browser -->|HTTPS 8447| GW[Consul API Gateway<br/>Envoy, ns=ingress<br/>https-countdash listener]
+    Browser -->|HTTPS 8448| GW2[same API Gateway job<br/>https-hashicups listener]
     GW -->|mTLS, intention: allow| CDW[countdash-web<br/>+ sidecar]
-    GW -->|mTLS, intention: allow| NGX[nginx<br/>+ sidecar]
+    GW2 -->|mTLS, intention: allow| NGX[nginx<br/>+ sidecar]
     CDW -->|mTLS upstream, intention: allow| CDA[countdash-api<br/>+ sidecar]
     NGX -->|mTLS upstream, intention: allow| PUB[public-api<br/>+ sidecar]
     PUB -->|mTLS upstream, intention: allow| PROD[product-api<br/>+ sidecar]
@@ -96,10 +97,16 @@ flowchart LR
     NGX -->|mTLS upstream, intention: allow| FE[frontend<br/>+ sidecar]
 ```
 
-All arrows other than the browser→gateway hop are Envoy sidecar↔sidecar mTLS
-connections, authorized by Consul service intentions. Everything not shown as
-an explicit arrow is denied (ACL default policy is already `deny`, so
-intentions default to `deny` too).
+**Updated 2026-07-22**: the gateway now has two listeners on one job/ingress
+node instead of one shared listener — 8447 (Countdash) and 8448
+(HashiCups) — so both apps are reachable simultaneously instead of sharing
+one path-based route where only the most-recently-applied one won. See
+[dedicated-ingress-node-plan.md](dedicated-ingress-node-plan.md)'s addendum.
+
+All arrows other than the browser→gateway hops are Envoy sidecar↔sidecar
+mTLS connections, authorized by Consul service intentions. Everything not
+shown as an explicit arrow is denied (ACL default policy is already `deny`,
+so intentions default to `deny` too).
 
 ---
 
@@ -173,7 +180,7 @@ connect {
 ```
 
 **Open item to verify during implementation:** confirm the pinned
-`consul_binary_version` (`2.0.1` in [group_vars/all.yaml](../../ansible/group_vars/all.yaml))
+`consul_binary_version` (`2.0.2` in [group_vars/all.yaml](../../ansible/group_vars/all.yaml))
 actually supports the `grpc_tls` port and API Gateway config entries
 (`api-gateway`, `http-route`, `inline-certificate`). These version numbers
 don't correspond to any published HashiCorp Consul release as of this

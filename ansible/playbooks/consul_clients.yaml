@@ -12,7 +12,7 @@
 #   - Target hosts: Ubuntu 20.04+ (Debian family)
 #   - Consul server cluster must be running before this playbook executes
 # Variables:
-#   - consul_binary_version: Consul release to install (default: 2.0.1)
+#   - consul_binary_version: Consul release to install (default: 2.0.2)
 #   - consul_datacenter: Consul datacenter name (default: dc1)
 #   - consul_use_aws_cloud_join: enable AWS cloud auto-join (default: true).
 #     Set to false (e.g. via [all:vars] in a non-AWS inventory) to fall back

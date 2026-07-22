@@ -73,7 +73,7 @@ job "api-gateway" {
     #     nomad/jobs/api-gateway/gateway/setup \
     #     consul_cacert=@ansible/.tls/ca.pem
 
-    # hashicorp/consul:2.0.1 does not bundle the envoy binary, and copying the
+    # hashicorp/consul:2.0.2 does not bundle the envoy binary, and copying the
     # glibc-linked envoy binary from envoyproxy/envoy into the Alpine/musl-based
     # consul image fails with "Error relocating /alloc/envoy: symbol not found"
     # (musl's dynamic linker can't satisfy glibc-specific symbols). Instead, run

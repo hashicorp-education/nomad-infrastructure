@@ -10,7 +10,7 @@ The deployment has two phases:
 2. **Ansible** — Installs and configures Consul and Nomad (approximately 10–15 minutes)
 
 > **Working through a [Nomad tutorial](https://developer.hashicorp.com/nomad/tutorials)?**
-> See [_context/wiki/nomad-tutorial-scenario-mapping.md](_context/wiki/nomad-tutorial-scenario-mapping.md)
+> Refer to [_context/wiki/nomad-tutorial-scenario-mapping.md](_context/wiki/nomad-tutorial-scenario-mapping.md)
 > for which use case below satisfies each tutorial's prerequisites.
 
 ```mermaid
@@ -281,7 +281,7 @@ Defaults: [`ansible/roles/consul/defaults/main.yaml`](ansible/roles/consul/defau
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `consul_binary_version` | `2.0.1` | Consul release to install |
+| `consul_binary_version` | `2.0.2` | Consul release to install |
 | `consul_datacenter` | `dc1` | Datacenter name |
 | `consul_server_enabled` | `false` | Enable server mode |
 | `consul_server_bootstrap_expect` | `3` | Quorum size |
@@ -529,8 +529,8 @@ Sub-playbooks executed in order:
 | Step | Sub-playbook | Hosts | What it does |
 |------|-------------|-------|--------------|
 | 1 | `common_setup` | `all` | Configures passwordless sudo; tests Ansible connectivity (ping) |
-| 2 | `consul_servers` | `[servers]` | Installs Consul 2.0.1 in server mode; enables Cloud Auto-Join using the `AutoJoinRole=server` EC2 tag; generates self-signed TLS certificates (TLS enabled by default); writes `/etc/consul.d/consul.hcl`; starts service; waits for the loopback HTTP port 8500 |
-| 3 | `consul_clients` | `[clients]` | Installs Consul 2.0.1 in client mode; joins the server cluster through Cloud Auto-Join |
+| 2 | `consul_servers` | `[servers]` | Installs Consul 2.0.2 in server mode; enables Cloud Auto-Join using the `AutoJoinRole=server` EC2 tag; generates self-signed TLS certificates (TLS enabled by default); writes `/etc/consul.d/consul.hcl`; starts service; waits for the loopback HTTP port 8500 |
+| 3 | `consul_clients` | `[clients]` | Installs Consul 2.0.2 in client mode; joins the server cluster through Cloud Auto-Join |
 | 4 | `consul_acl_bootstrap` | `servers[0]` | Bootstraps Consul ACL; saves management token to `ansible/tokens/consul-bootstrap-*.txt` |
 | 5 | `consul_dns_token` | `servers[0]` + `[clients]` | Creates `dns-access` ACL policy; creates a shared DNS token and one per-node node-identity agent token per client; applies the DNS token to every Consul agent using `consul acl set-agent-token dns`; re-runs consul role on each client with `consul_acl_enabled: true` to write `acl { tokens { agent dns } }` into `consul.hcl`; saves `ansible/tokens/consul-dns-secret-id.txt` and `ansible/tokens/consul-client-agent-<hostname>-secret-id.txt` |
 | 6 | `dnsmasq` | `all` | Installs dnsmasq; disables systemd-resolved stub listener; forwards `.global` queries to `127.0.0.1:8600`; binds to `172.17.0.1` as well so Docker containers can reach dnsmasq; rewrites `/etc/resolv.conf` |
@@ -593,8 +593,8 @@ Sub-playbooks executed in order:
 | Step | Sub-playbook | Hosts | What it does |
 |------|-------------|-------|--------------|
 | 1 | `common_setup` | `all` | Configures passwordless sudo; tests Ansible connectivity (ping) |
-| 2 | `consul_servers` | `[servers]` | Installs Consul 2.0.1 in server mode; enables Cloud Auto-Join |
-| 3 | `consul_clients` | `[clients]` | Installs Consul 2.0.1 in client mode; joins server cluster |
+| 2 | `consul_servers` | `[servers]` | Installs Consul 2.0.2 in server mode; enables Cloud Auto-Join |
+| 3 | `consul_clients` | `[clients]` | Installs Consul 2.0.2 in client mode; joins server cluster |
 | 4 | `consul_acl_bootstrap` | `servers[0]` | Bootstraps Consul ACL; saves management token to `ansible/tokens/` |
 | 5 | `consul_dns_token` | `servers[0]` + `[clients]` | Creates `dns-access` ACL policy; creates DNS token and per-node node-identity agent tokens for each client; applies DNS token to all Consul agents; reconfigures Consul clients with ACL enabled and both tokens in `consul.hcl`; saves `ansible/tokens/consul-dns-secret-id.txt` and `ansible/tokens/consul-client-agent-<hostname>-secret-id.txt` |
 | 6 | `dnsmasq` | `all` | Installs dnsmasq; configures `.global` DNS forwarding to port 8600; binds to both `127.0.0.1` and `172.17.0.1` |
@@ -912,11 +912,11 @@ consul members
 
 # Expected output:
 # Node                        Address          Status  Type    Build   Protocol  DC   Partition  Segment
-# nomad-consul-server-1  10.0.1.x:8301   alive   server  2.0.1   2         dc1  default    <all>
-# nomad-consul-server-2  10.0.1.y:8301   alive   server  2.0.1   2         dc1  default    <all>
-# nomad-consul-server-3  10.0.1.z:8301   alive   server  2.0.1   2         dc1  default    <all>
-# nomad-consul-client-1  10.0.1.a:8301   alive   client  2.0.1   2         dc1  default    <default>
-# nomad-consul-client-2  10.0.1.b:8301   alive   client  2.0.1   2         dc1  default    <default>
+# nomad-consul-server-1  10.0.1.x:8301   alive   server  2.0.2   2         dc1  default    <all>
+# nomad-consul-server-2  10.0.1.y:8301   alive   server  2.0.2   2         dc1  default    <all>
+# nomad-consul-server-3  10.0.1.z:8301   alive   server  2.0.2   2         dc1  default    <all>
+# nomad-consul-client-1  10.0.1.a:8301   alive   client  2.0.2   2         dc1  default    <default>
+# nomad-consul-client-2  10.0.1.b:8301   alive   client  2.0.2   2         dc1  default    <default>
 
 consul info | grep -E "server|leader|peers"
 ```
@@ -1330,7 +1330,7 @@ Roles applied by `consul_servers` (in order):
 | `helper` | Installs apt packages: jq, net-tools, unzip, nano, curl |
 | `tls` | Generates self-signed TLS certificates on the control machine (only when `consul_tls_enabled: true`) |
 | `helper` | Copies TLS certs to `{{ consul_tls_dir }}` owned by the `consul` user (only when `consul_tls_enabled: true`) |
-| `consul` | Installs Consul 2.0.1; writes `/etc/consul.d/consul.hcl`; creates systemd unit; starts service |
+| `consul` | Installs Consul 2.0.2; writes `/etc/consul.d/consul.hcl`; creates systemd unit; starts service |
 
 Key configuration values applied by `consul_servers`:
 
@@ -1354,7 +1354,7 @@ Roles applied by `consul_clients` (in order):
 | `helper` | Installs apt packages: jq, net-tools, unzip, nano, curl |
 | `tls` | Generates self-signed TLS certificates on the control machine (only when `consul_tls_enabled: true`) |
 | `helper` | Copies TLS certs to `{{ consul_tls_dir }}` owned by the `consul` user (only when `consul_tls_enabled: true`) |
-| `consul` | Installs Consul 2.0.1 in client mode; Cloud Auto-Join finds servers using the `AutoJoinRole=server` tag |
+| `consul` | Installs Consul 2.0.2 in client mode; Cloud Auto-Join finds servers using the `AutoJoinRole=server` tag |
 
 Key configuration values applied by `consul_clients`:
 

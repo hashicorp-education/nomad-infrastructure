@@ -15,7 +15,7 @@ Key variables (see `defaults/main.yaml` for the full list and defaults):
 
 | Variable | Default | Description |
 |---|---|---|
-| `consul_binary_version` | `2.0.1` | Consul release to install |
+| `consul_binary_version` | `2.0.2` | Consul release to install |
 | `consul_server_enabled` | `false` | Run this node as a server agent |
 | `consul_server_bootstrap_expect` | `3` | Expected number of servers in the cluster |
 | `consul_client_enabled` | `false` | Not used directly; set `consul_server_enabled: false` for a client agent |

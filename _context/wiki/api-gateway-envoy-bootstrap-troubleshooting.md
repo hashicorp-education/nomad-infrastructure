@@ -14,7 +14,7 @@ the fourth but with a completely different root cause and fix.
 ## 1. `hashicorp/consul` images do not bundle `envoy`
 
 `consul connect envoy -gateway=api -register` needs both the `consul` and
-`envoy` binaries in the same container. `hashicorp/consul:2.0.1` does not
+`envoy` binaries in the same container. `hashicorp/consul:2.0.2` does not
 ship `envoy` at all, and there is no `hashicorp/consul-envoy` image (verified
 via the Docker Hub v2 API — that repository does not exist).
 
@@ -33,7 +33,7 @@ via the Docker Hub v2 API — that repository does not exist).
   it runs unmodified on any Linux base image regardless of libc flavor.
 
 Final structure: a `lifecycle { hook = "prestart", sidecar = false }` task on
-the `hashicorp/consul:2.0.1` image copies the binary into the shared `alloc/`
+the `hashicorp/consul:2.0.2` image copies the binary into the shared `alloc/`
 directory:
 
 ```hcl
@@ -44,7 +44,7 @@ task "fetch-consul" {
     sidecar = false
   }
   config {
-    image      = "hashicorp/consul:2.0.1"
+    image      = "hashicorp/consul:2.0.2"
     entrypoint = ["/bin/sh", "-c"]
     args = [
       "cp \"$(command -v consul)\" /alloc/consul && chmod +x /alloc/consul",
@@ -269,7 +269,7 @@ survived a clean config-entry recreate, it wasn't a one-off xDS sync race —
 something was consistently generating mismatched xDS resources.
 
 **Root cause:** `consul version` locally reported `v2.0.2`, while the
-cluster's actual Consul agents run `v2.0.1` (confirmed via `ssh
+cluster's actual Consul agents run `v2.0.2` (confirmed via `ssh
 <server> consul version`, since the *server's own* installed CLI is
 guaranteed to match the agent it's colocated with). Homebrew had silently
 upgraded the local `consul` CLI mid-session. The mismatched local CLI

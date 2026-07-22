@@ -20,7 +20,7 @@ argument_specs:
       consul_binary_version:
         type: str
         required: false
-        default: "2.0.1"
+        default: "2.0.2"
         description: Consul release version to install.
 
       consul_manage_user:

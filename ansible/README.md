@@ -1,8 +1,8 @@
 # Ansible configuration for Nomad cluster
 
-This directory contains Ansible playbooks and roles to install and configure a co-located HashiCorp Nomad v2.0.4 + Consul v2.0.1 cluster on the infrastructure provisioned by Terraform.
+This directory contains Ansible playbooks and roles to install and configure a co-located HashiCorp Nomad + Consul cluster on the infrastructure provisioned by Terraform. Versions are pinned in [`group_vars/all.yaml`](group_vars/all.yaml).
 
-**[Complete deployment guide](../DEPLOY_CLUSTER_GUIDE.MD)** — Step-by-step instructions for the full deployment process.
+**[Complete deployment guide](../DEPLOY_CLUSTER_GUIDE.md)** — Step-by-step instructions for the full deployment process.
 
 ## Overview
 
@@ -164,7 +164,7 @@ Refer to [PLAYBOOKS-README.md](PLAYBOOKS-README.md) for detailed documentation o
 **Purpose**: Consul agent installation and configuration
 
 **Features**:
-- Installs Consul 2.0.1 binary via `hashicorp_release` role
+- Installs Consul (version pinned in `group_vars/all.yaml`, currently 2.0.2) via `hashicorp_release` role
 - Supports server mode and client mode (toggled by `consul_server_enabled`)
 - Configures ACLs, TLS, gossip encryption, and Consul Connect (service mesh)
 - Creates and validates systemd service
@@ -343,7 +343,7 @@ These can be overridden in playbooks or via command line:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `nomad_binary_version` | `2.0.4` | Nomad version to install — set in [`group_vars/all.yaml`](group_vars/all.yaml) |
-| `consul_binary_version` | `2.0.1` | Consul version to install — set in [`group_vars/all.yaml`](group_vars/all.yaml) |
+| `consul_binary_version` | `2.0.2` | Consul version to install — set in [`group_vars/all.yaml`](group_vars/all.yaml) |
 | `cni_plugins_version` | `1.9.1` | CNI plugins version — set in [`group_vars/all.yaml`](group_vars/all.yaml) |
 | `nomad_log_level` | `INFO` | Logging level (DEBUG, INFO, WARN, ERROR) |
 | `nomad_acl_enabled` | `false` | Enable ACL system |

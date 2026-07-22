@@ -1,7 +1,7 @@
 # Countdash — Consul service mesh, transparent proxy variant (default mesh
 # mode for Countdash as of this file's "make it default" follow-up)
 #
-# Live-verified end-to-end on a real AWS cluster (Consul v2.0.1, Nomad
+# Live-verified end-to-end on a real AWS cluster (Consul v2.0.2, Nomad
 # v2.0.4) — see _context/wiki/transparent-proxy-enablement-plan.md for the
 # full rollout, including four real bugs found and fixed along the way, plus
 # a later follow-up that automated away the two manual steps this header

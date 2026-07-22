@@ -455,7 +455,7 @@ ansible clients -i inventory.ini -m ansible.builtin.systemd_service -a "name=nom
 
 # attr.consul.version now populated:
 nomad node status -verbose <client-id> | grep -i consul
-# consul.version = 2.0.1
+# consul.version = 2.0.2
 
 # Job redeploy succeeded with no placement failures:
 nomad job run countdash-consul-service-discovery.nomad.hcl
