@@ -1,6 +1,7 @@
 # Roadmap: Using This Repo for Nomad Tutorial Infrastructure
 
-**Status: Proposal. Phases 1, 2, 3, and 4 implemented; Phases 5 and 6 not yet implemented.**
+**Status: Proposal. Phases 1, 2, 3, 4, and 6 implemented; Phase 5 not yet
+implemented. Phase 7 (new, added 2026-07-22) planned but not implemented.**
 **Underlying deployment scenarios: all of Get Started and Options A–F in
 [DEPLOY_CLUSTER_GUIDE.md](../../DEPLOY_CLUSTER_GUIDE.md) are implemented and
 live-verified** — Options A–D and the base of E predate this roadmap; Option F
@@ -31,7 +32,7 @@ categories, rather than maintaining a separate cluster per category.
 | Vault Integration | 1 | **Phase 3** — implemented: self-hosted Vault cluster + Nomad workload identity via `deploy_nomad_vault.yaml` ("Scenario F"). Implements the generic "Nomad tasks fetch secrets from Vault" pattern rather than the official tutorial's specific PKI/mTLS-cert-rotation scope (gap, see Phase 3 section below) |
 | Load Balancer Integrations | 1 | **Phase 4** — implemented: optional ALB via `terraform/aws/loadbalancer.tf` (`enable_load_balancer = true`) |
 | Federated Workload Identity | 1 | **Phase 5** — net-new, highest risk: requires a **second concurrent cluster** (breaks the "one shared cluster" model — federation is inherently cross-cluster) |
-| Nomad Enterprise | 5 | **Phase 6** — scaffolded only; blocked pending an Enterprise license |
+| Nomad Enterprise | 5 | **Phase 6** — implemented for the license-install + deploy-Enterprise-cluster tutorials (3 of 5); **Phase 7** covers the remaining 2 (Dynamic Application Sizing / Nomad Autoscaler), planned but not implemented |
 
 ## Phase 1 — "Get Started" single-node scenario (implemented)
 
@@ -164,12 +165,71 @@ concern that works the same way against this ALB.
 - Recommended last: breaks the "one shared cluster" model and has the most
   moving parts of any phase.
 
-## Phase 6 — Enterprise (not yet implemented, blocked)
+## Phase 6 — Enterprise licensing (implemented)
 
-- Scaffold an `nomad_edition`/`consul_edition` variable (`oss`/`enterprise`)
-  in the `hashicorp_release` role, but leave it unexercised until an
-  Enterprise license is available. No license was available as of this
-  plan's writing.
+The Nomad Enterprise tutorial category's 5 tutorials split into two
+distinct pieces: license install + deploying an Enterprise cluster (3
+tutorials, one of which — reference architecture — is a reading exercise
+with no infra component), and Dynamic Application Sizing via the Nomad
+Autoscaler (2 tutorials, deferred to **Phase 7** below). This phase covers
+the former.
+
+Unlike the original scaffolding plan (an unwired `nomad_edition` var and an
+orphaned `ansible/roles/nomad/templates/license.hcl.j2` that was never
+included by anything), this phase implements a fully wired, cross-cutting
+toggle consistent with this roadmap's "one shared cluster, reconfigured via
+playbooks/vars" lifecycle decision:
+
+- `nomad_edition` / `consul_edition` (`oss`/`enterprise`, default `oss`) in
+  `ansible/group_vars/all.yaml`, flowing into the `nomad` and `consul`
+  roles' own matching defaults. `oss` is the default, so every existing
+  scenario is unaffected unless a user opts in explicitly.
+- Enterprise release artifacts are fetched by appending `+ent` to the
+  pinned binary version (e.g. `2.0.4+ent`) before calling the
+  `hashicorp_release` role — no changes were needed to that role at all;
+  `releases.hashicorp.com`'s existing `{product}_{version}_{os}_{arch}.zip`
+  URL scheme already handles `+ent` versions correctly.
+- License files are distributed via the same `helper` role
+  `helper_file_copy_local` pattern already used for TLS certs, from a new
+  gitignored `ansible/licenses/` directory (`nomad.hclic`, `consul.hclic`)
+  to `license_path` inside each product's rendered config — `server{}` for
+  Nomad (servers only need a license), top-level for Consul (every agent,
+  server and client, needs one).
+- The dead `license.hcl.j2` scaffold was deleted; its content is now
+  inlined into `nomad.hcl.j2`'s existing `{% if %}`-block style, matching
+  every other conditional section in that template (TLS, telemetry, Consul,
+  Vault).
+
+Fully live-verified on both Multipass and AWS: `+ent` binaries install
+correctly, the license file is distributed and loaded by both agents, and
+`nomad license get`/`consul license get` both confirm a valid Enterprise
+license on each platform — see
+[enterprise-licensing-plan.md](enterprise-licensing-plan.md) for the full
+design writeup and results.
+
+## Phase 7 — Nomad Autoscaler / Dynamic Application Sizing (not yet implemented, planned)
+
+Covers the remaining 2 of the 5 Nomad Enterprise tutorials: "Dynamic
+Application Sizing concepts" and "Use Dynamic Application Sizing." Deferred
+out of Phase 6's scope by explicit decision — this is materially bigger
+than a license/edition toggle:
+
+- Requires deploying the Nomad Autoscaler as its own binary/service (not
+  part of the `nomad`/`consul` roles), likely a new
+  `ansible/roles/nomad_autoscaler/` role mirroring the `vault` role's
+  structure (systemd service, HCL config template, argument specs).
+  Autoscaler releases follow the same `{product}_{version}_{os}_{arch}.zip`
+  pattern as every other HashiCorp product on releases.hashicorp.com, so
+  the existing `hashicorp_release` role should still apply unchanged.
+- Requires an APM plugin (e.g. Prometheus) and a scaling policy attached to
+  a job, plus a workload to actually generate the load the recommendations
+  react to — closer to a job-spec/demo-app concern (like
+  `nomad-jobs/consul-mesh/`) than a pure infra-provisioning one.
+- Dynamic Application Sizing is Nomad Enterprise-only, so this phase has a
+  hard dependency on Phase 6 already being enabled
+  (`nomad_edition: enterprise`).
+- Not started. Recorded here so the remaining 2/5 tutorial gap from Phase 6
+  isn't lost.
 
 ## Decisions made
 
@@ -178,8 +238,9 @@ concern that works the same way against this ALB.
   per-tutorial provisioning. Exception: Phase 5 (Federated Workload
   Identity) inherently needs two concurrent clusters.
 - **Scope:** all categories are in scope, including Load Balancer,
-  Federated Workload Identity, and Enterprise (Enterprise scaffolded only,
-  pending a license).
+  Federated Workload Identity, and Enterprise (license install + Enterprise
+  cluster deploy implemented in Phase 6; Nomad Autoscaler / Dynamic
+  Application Sizing planned for Phase 7).
 - **Vault:** new self-hosted Ansible role, not HCP Vault.
 - **Get Started:** yes, add a dedicated lightweight single-node scenario
   rather than reusing the full HA cluster.

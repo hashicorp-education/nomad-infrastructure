@@ -255,7 +255,8 @@ ansible-playbook -i inventory.ini playbooks/consul_servers.yaml
 | `helper` | Installs apt packages: jq, net-tools, unzip, nano, curl |
 | `tls` | Generates self-signed TLS certificates on the control machine (skipped when `consul_tls_enabled: false`) |
 | `helper` | Copies TLS certs to `{{ consul_tls_dir }}` owned by the `consul` user (skipped when `consul_tls_enabled: false`) |
-| `consul` | Installs Consul 2.0.2, writes `/etc/consul.d/consul.hcl`, creates systemd unit, starts service |
+| `helper` | Copies the Enterprise license to `{{ consul_license_dir }}/license.hclic` (skipped unless `consul_edition: "enterprise"`) |
+| `consul` | Installs Consul 2.0.2 (or the `+ent` artifact when `consul_edition: "enterprise"`), writes `/etc/consul.d/consul.hcl`, creates systemd unit, starts service |
 
 **Key variables set by this playbook:**
 
@@ -295,7 +296,8 @@ ansible-playbook -i inventory.ini playbooks/consul_clients.yaml
 | `helper` | Installs apt packages: jq, net-tools, unzip, nano, curl |
 | `tls` | Generates self-signed TLS certificates on the control machine (skipped when `consul_tls_enabled: false`) |
 | `helper` | Copies TLS certs to `{{ consul_tls_dir }}` owned by the `consul` user (skipped when `consul_tls_enabled: false`) |
-| `consul` | Installs Consul 2.0.2 in client mode, joins server cluster via Cloud Auto-Join |
+| `helper` | Copies the Enterprise license to `{{ consul_license_dir }}/license.hclic` (skipped unless `consul_edition: "enterprise"`) |
+| `consul` | Installs Consul 2.0.2 in client mode (or the `+ent` artifact when `consul_edition: "enterprise"`), joins server cluster via Cloud Auto-Join |
 
 **Key variables set by this playbook:**
 
@@ -428,6 +430,8 @@ ansible-playbook -i inventory.ini playbooks/consul_acl_deny_anonymous.yaml
 
 ---
 
+### playbooks/nomad_servers.yaml
+
 Installs and configures Nomad server agents on the `[servers]` inventory group. Run **after** the Consul layer is up.
 
 ```bash
@@ -443,7 +447,8 @@ ansible-playbook -i inventory.ini playbooks/nomad_servers.yaml
 | `common` | Sets hostname, installs base system packages |
 | `tls` | Generates self-signed TLS certificates on the control machine (skipped when `nomad_tls_enabled: false`) |
 | `helper` | Installs build-essential, git, jq, net-tools, unzip, nano; copies TLS certs to `/etc/nomad.d/.tls/` |
-| `nomad` | Installs Nomad 2.0.4, writes `/etc/nomad.d/nomad.hcl`, creates systemd unit, starts service |
+| `helper` | Copies the Enterprise license to `/etc/nomad.d/.license/license.hclic` (skipped unless `nomad_edition: "enterprise"`) |
+| `nomad` | Installs Nomad 2.0.4 (or the `+ent` artifact when `nomad_edition: "enterprise"`), writes `/etc/nomad.d/nomad.hcl`, creates systemd unit, starts service |
 
 **Key variables set by this playbook:**
 
@@ -497,6 +502,8 @@ ansible-playbook -i inventory.ini playbooks/nomad_clients.yaml
 | `nomad_client_use_consul_token` | `true` (passes the Consul agent token through to `template {}` blocks when using service discovery without workload identity) |
 
 **How Nomad clients find servers:** Same as servers — static `server_join.retry_join` list of server private IPs from the `[servers]` inventory group.
+
+**Enterprise:** unlike Consul, only Nomad *servers* need a license — this playbook does not install a license file, even when `nomad_edition: "enterprise"`.
 
 **Post-tasks:** Waits for Nomad HTTPS API on port 4646.
 
@@ -797,6 +804,7 @@ ansible-playbook -i inventory.ini playbooks/consul_servers.yaml playbooks/consul
 | `consul_cloud_auto_join_enabled` | `true` | Enables AWS Cloud Auto-Join |
 | `consul_acl_enabled` | `true` | Enables ACLs |
 | `consul_tls_enabled` | `true` | Enables TLS |
+| `consul_edition` | `oss` (role default) | `oss` or `enterprise`; set in `group_vars/all.yaml` |
 
 ### Nomad server variables (`nomad_servers.yaml`)
 
@@ -807,6 +815,21 @@ ansible-playbook -i inventory.ini playbooks/consul_servers.yaml playbooks/consul
 | `nomad_server_bootstrap_expect` | `{{ groups['servers'] \| length }}` | Quorum size |
 | `nomad_acl_enabled` | `true` | Enables ACLs |
 | `nomad_tls_enabled` | `true` | Enables TLS |
+| `nomad_edition` | `oss` (role default) | `oss` or `enterprise`; set in `group_vars/all.yaml` |
+
+### Enterprise licensing variables
+
+| Variable | Default | Where to set | Description |
+|----------|---------|---|-------------|
+| `nomad_edition` | `oss` | `group_vars/all.yaml` | `enterprise` installs the `+ent` Nomad binary and renders `license_path` in the `server {}` block (servers only) |
+| `consul_edition` | `oss` | `group_vars/all.yaml` | `enterprise` installs the `+ent` Consul binary and renders `license_path` at the top level of `consul.hcl` (every agent — servers and clients) |
+
+License files must exist at `ansible/licenses/nomad.hclic` and
+`ansible/licenses/consul.hclic` (gitignored) before running with either
+variable set to `enterprise`. See
+[DEPLOY_CLUSTER_GUIDE.md](../DEPLOY_CLUSTER_GUIDE.md#optional-nomadconsul-enterprise-licensing)
+and
+[_context/wiki/enterprise-licensing-plan.md](../_context/wiki/enterprise-licensing-plan.md).
 
 ### Consul-Nomad integration variables
 
@@ -864,6 +887,22 @@ Edit [`group_vars/all.yaml`](group_vars/all.yaml) — the single file for all
 product version pins (see [Version variables](#version-variables) above) —
 then re-run the relevant playbook. Do not edit a role's `defaults/main.yaml`
 directly; `group_vars/all.yaml` overrides it for every play.
+
+### Enable Nomad/Consul Enterprise
+
+Place valid license files at `ansible/licenses/nomad.hclic` (Nomad servers
+only) and `ansible/licenses/consul.hclic` (all Consul agents) — gitignored,
+not committed. Then edit `group_vars/all.yaml`:
+
+```yaml
+nomad_edition: "enterprise"
+consul_edition: "enterprise"
+```
+
+Re-run any use case entrypoint or sub-playbook as normal — this is a
+cross-cutting toggle, not a separate deployment path, and works with every
+scenario. See [Enterprise licensing variables](#enterprise-licensing-variables)
+above.
 
 ### Disable TLS
 

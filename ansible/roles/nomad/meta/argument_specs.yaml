@@ -22,6 +22,16 @@ argument_specs:
         default: "2.0.4"
         description: Nomad release version to install.
 
+      nomad_edition:
+        type: str
+        required: false
+        default: "oss"
+        choices: ["oss", "enterprise"]
+        description: >-
+          When "enterprise", installs the "+ent" release artifact and renders
+          license_path in the server{} block, pointing at a license file
+          distributed by the calling playbook.
+
       nomad_server_enabled:
         type: bool
         required: false

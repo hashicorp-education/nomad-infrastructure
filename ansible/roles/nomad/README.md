@@ -23,6 +23,7 @@ The nomad role installs and configures HashiCorp Nomad v2.0.4 on both server and
 | `nomad_user` | string | `root` | User to run Nomad service |
 | `nomad_group` | string | `root` | Group to run Nomad service |
 | `nomad_binary_version` | string | `2.0.4` | Nomad version to install |
+| `nomad_edition` | string | `oss` | `oss` or `enterprise`. When `enterprise`, installs the `+ent` release artifact and renders `license_path` in the `server {}` block; requires the calling playbook to distribute a license file to `{{ nomad_config_dir }}/.license/license.hclic` |
 | `nomad_config_dir` | string | `/etc/nomad.d` | Configuration directory |
 | `nomad_data_dir` | string | `/opt/nomad/data` | Data directory |
 | `nomad_plugin_dir` | string | `/opt/nomad/plugins` | Plugin directory |

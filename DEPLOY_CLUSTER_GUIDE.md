@@ -234,7 +234,9 @@ cd ansible
 ansible-galaxy install -r requirements.yaml
 ```
 
-## AWS credentials
+### AWS credentials
+
+This step is only required for the AWS infrastructure option.
 
 ```bash
 # Option 1: AWS CLI
@@ -251,6 +253,16 @@ export AWS_PROFILE="your-profile-name"
 # Verify
 aws sts get-caller-identity
 ```
+
+### Nomad, Consul, and Vault CLIs
+
+If you plan to interact with the cluster from your terminal, install the Nomad
+CLI and optionally Consul and Vault.
+
+- [Install Nomad CLI
+  instructions](https://developer.hashicorp.com/nomad/install)
+- [Install Consul CLI instructions](https://developer.hashicorp.com/consul/install)
+- [Install Vault CLI instructions](https://developer.hashicorp.com/vault/install)
 
 ---
 
@@ -288,6 +300,7 @@ Defaults: [`ansible/roles/consul/defaults/main.yaml`](ansible/roles/consul/defau
 | `consul_cloud_auto_join_enabled` | `false` | Enable AWS Cloud Auto-Join |
 | `consul_acl_enabled` | `false` | Enable ACLs |
 | `consul_tls_enabled` | `true` | Enable TLS |
+| `consul_edition` | `oss` | `oss` or `enterprise` — see [Optional: Nomad/Consul Enterprise licensing](#optional-nomadconsul-enterprise-licensing) |
 
 ### Ansible variables — Nomad
 
@@ -303,6 +316,7 @@ Defaults: [`ansible/roles/nomad/defaults/main.yaml`](ansible/roles/nomad/default
 | `nomad_acl_enabled` | `false` | Enable ACLs |
 | `nomad_tls_enabled` | `true` | Enable TLS |
 | `nomad_log_level` | `DEBUG` | Log level |
+| `nomad_edition` | `oss` | `oss` or `enterprise` — see [Optional: Nomad/Consul Enterprise licensing](#optional-nomadconsul-enterprise-licensing) |
 
 ### Ansible variables — Vault
 
@@ -1510,6 +1524,54 @@ attachment per client instance, and a port-80 listener. See
 for what this does and does not reproduce from the tutorial.
 
 To remove the ALB, set `enable_load_balancer = false` and re-apply.
+
+---
+
+## Optional: Nomad/Consul Enterprise licensing
+
+For the [Nomad Enterprise tutorials](https://developer.hashicorp.com/nomad/tutorials/enterprise),
+this repo can install Nomad/Consul Enterprise (`+ent`) binaries and load a
+license instead of the open-source (CE) binaries. It's disabled by default
+(`nomad_edition`/`consul_edition: "oss"`) and works with any deployed use
+case that runs the `nomad`/`consul` roles (Get Started, A-F) — the toggle
+lives in `ansible/group_vars/all.yaml`, not a dedicated deployment option.
+
+You need valid Consul and Nomad Enterprise license files (`.hclic`). Place
+them at:
+
+```text
+ansible/licenses/nomad.hclic    # required on Nomad servers only
+ansible/licenses/consul.hclic   # required on all Consul agents (servers and clients)
+```
+
+This directory is gitignored — license files are never committed. Then edit
+`ansible/group_vars/all.yaml`:
+
+```yaml
+nomad_edition: "enterprise"
+consul_edition: "enterprise"
+```
+
+Run (or re-run) the playbooks for your chosen use case as normal. On the
+first run against a given host, the `nomad`/`consul` roles download the
+`+ent` release artifact instead of the CE one, and each server's
+`license_path` config picks up the distributed license file.
+
+Verify:
+
+```bash
+nomad version    # should show a "+ent" suffix
+nomad license get
+
+consul version   # should show a "+ent" suffix
+consul license get
+```
+
+To revert to CE, set both vars back to `"oss"` and re-run — the role
+re-downloads the CE binary since the pinned version string no longer
+matches what's installed. See
+[_context/wiki/enterprise-licensing-plan.md](_context/wiki/enterprise-licensing-plan.md)
+for the full design and verification writeup.
 
 ---
 

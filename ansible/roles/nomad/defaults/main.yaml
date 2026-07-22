@@ -8,6 +8,11 @@ nomad_group: "root"
 
 nomad_binary_version: "2.0.4"
 
+# nomad_edition: "oss" or "enterprise". When "enterprise", the role installs
+# the "+ent" release artifact and renders license_path in the server{}
+# block. See group_vars/all.yaml and _context/wiki/enterprise-licensing-plan.md.
+nomad_edition: "oss"
+
 # nomad_node_name is written to the name parameter in nomad.hcl.
 # nomad_servers.yaml overrides this to "nomad-server-N" (1-based group index).
 # nomad_clients.yaml overrides this to "nomad-client-N" (1-based group index).

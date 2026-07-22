@@ -16,6 +16,8 @@
 #     to the consul role's static-IP retry_join instead.
 #   - consul_acl_enabled: enable ACLs (default: false)
 #   - consul_tls_enabled: enable TLS (default: true)
+#   - consul_edition: "oss" or "enterprise" (default: oss, see group_vars/all.yaml).
+#     When "enterprise", requires ansible/licenses/consul.hclic to exist.
 # Usage:
 #   ansible-playbook -i inventory.ini consul_servers.yaml
 #   ansible-playbook -i inventory.ini consul_servers.yaml --tags consul_config
@@ -113,6 +115,17 @@
         notify: "Restart consul"
       - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}-key.pem"
         dst: "{{ consul_tls_dir }}/consul-key.pem"
+        owner: "{{ consul_user }}"
+        group: "{{ consul_group }}"
+        mode: "0600"
+        notify: "Restart consul"
+
+  - role: helper
+    when: consul_edition == 'enterprise'
+    vars:
+      helper_file_copy_local:
+      - src: "{{ inventory_dir }}/licenses/consul.hclic"
+        dst: "{{ consul_license_dir }}/license.hclic"
         owner: "{{ consul_user }}"
         group: "{{ consul_group }}"
         mode: "0600"

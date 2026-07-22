@@ -167,6 +167,7 @@ Refer to [PLAYBOOKS-README.md](PLAYBOOKS-README.md) for detailed documentation o
 - Installs Consul (version pinned in `group_vars/all.yaml`, currently 2.0.2) via `hashicorp_release` role
 - Supports server mode and client mode (toggled by `consul_server_enabled`)
 - Configures ACLs, TLS, gossip encryption, and Consul Connect (service mesh)
+- Supports Enterprise (`consul_edition: "enterprise"`) — installs the `+ent` binary and loads a license; see [Enable Nomad/Consul Enterprise](#enable-nomadconsul-enterprise)
 - Creates and validates systemd service
 
 **Used By**: `consul_servers.yaml`, `consul_clients.yaml`, `consul_nomad_integration.yaml`
@@ -259,6 +260,7 @@ ansible-galaxy install -r requirements.yaml
 - Supports both server and client modes (toggled by `nomad_server_enabled` / `nomad_client_enabled`)
 - Handles ACL, TLS, telemetry, and cloud auto-join configuration
 - Supports Consul integration via `consul {}` block when `nomad_consul_integration_enabled: true`
+- Supports Enterprise (`nomad_edition: "enterprise"`) — installs the `+ent` binary and loads a license; see [Enable Nomad/Consul Enterprise](#enable-nomadconsul-enterprise)
 
 **Used By**: `nomad_servers.yaml`, `nomad_clients.yaml`, `consul_nomad_integration.yaml`
 
@@ -308,12 +310,16 @@ To pin Nomad, Consul, or CNI plugin versions, edit
 source of truth for product versions and takes precedence over the per-role
 `defaults/` values.
 
+The same file also holds `nomad_edition`/`consul_edition` (`oss` or
+`enterprise`) — see [Enable Nomad/Consul Enterprise](#enable-nomadconsul-enterprise).
+
 ### Nomad role variables
 
 Located in [`roles/nomad/defaults/main.yaml`](roles/nomad/defaults/main.yaml):
 
 ```yaml
 nomad_binary_version: "2.0.4"
+nomad_edition: "oss"
 
 nomad_server_enabled: false
 nomad_server_bootstrap_expect: 3
@@ -345,6 +351,8 @@ These can be overridden in playbooks or via command line:
 | `nomad_binary_version` | `2.0.4` | Nomad version to install — set in [`group_vars/all.yaml`](group_vars/all.yaml) |
 | `consul_binary_version` | `2.0.2` | Consul version to install — set in [`group_vars/all.yaml`](group_vars/all.yaml) |
 | `cni_plugins_version` | `1.9.1` | CNI plugins version — set in [`group_vars/all.yaml`](group_vars/all.yaml) |
+| `nomad_edition` | `oss` | `oss` or `enterprise` — set in [`group_vars/all.yaml`](group_vars/all.yaml) |
+| `consul_edition` | `oss` | `oss` or `enterprise` — set in [`group_vars/all.yaml`](group_vars/all.yaml) |
 | `nomad_log_level` | `INFO` | Logging level (DEBUG, INFO, WARN, ERROR) |
 | `nomad_acl_enabled` | `false` | Enable ACL system |
 | `nomad_cloud_auto_join_enabled` | `true` | Enable AWS cloud auto-join |
@@ -503,6 +511,29 @@ nomad_binary_version: "2.0.4"
 # Or override via command line
 ansible-playbook -i inventory.ini deploy_consul_nomad_wi.yaml -e "nomad_binary_version=2.0.4"
 ```
+
+### Enable Nomad/Consul Enterprise
+
+1. Place valid Enterprise license files at `ansible/licenses/nomad.hclic`
+   (Nomad servers only) and `ansible/licenses/consul.hclic` (all Consul
+   agents) — this directory is gitignored.
+2. Edit [`group_vars/all.yaml`](group_vars/all.yaml):
+
+   ```yaml
+   nomad_edition: "enterprise"
+   consul_edition: "enterprise"
+   ```
+
+3. Run (or re-run) any use case entrypoint as normal. The `nomad`/`consul`
+   roles install the `+ent` binary instead of the CE one and load the
+   license.
+
+Works with any scenario (Get Started, A-F) — it's a cross-cutting toggle,
+not a dedicated deployment option. See
+[DEPLOY_CLUSTER_GUIDE.md](../DEPLOY_CLUSTER_GUIDE.md#optional-nomadconsul-enterprise-licensing)
+and
+[_context/wiki/enterprise-licensing-plan.md](../_context/wiki/enterprise-licensing-plan.md)
+for the full design and live-verification results.
 
 ## Troubleshooting
 
