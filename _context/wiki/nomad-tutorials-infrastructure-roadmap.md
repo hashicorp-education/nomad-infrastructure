@@ -1,6 +1,15 @@
 # Roadmap: Using This Repo for Nomad Tutorial Infrastructure
 
 **Status: Proposal. Phases 1, 2, 3, and 4 implemented; Phases 5 and 6 not yet implemented.**
+**Underlying deployment scenarios: all of Get Started and Options A–F in
+[DEPLOY_CLUSTER_GUIDE.md](../../DEPLOY_CLUSTER_GUIDE.md) are implemented and
+live-verified** — Options A–D and the base of E predate this roadmap; Option F
+(Vault) was added by Phase 3 below. Option E additionally gained a dedicated
+public "ingress" Nomad client and a dual-listener API Gateway (Countdash on
+`8447`, HashiCups on `8448`, reachable simultaneously) after this roadmap's
+phases were written — see
+[dedicated-ingress-node-plan.md](dedicated-ingress-node-plan.md). That work is
+an Option E architecture improvement, not a new roadmap phase.
 
 Goal: use this repo's Terraform + Ansible stack to stand up infrastructure for
 the different use cases covered by the
