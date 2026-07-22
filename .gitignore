@@ -27,6 +27,7 @@ ansible/ssh_key.pub
 .tls/
 ansible/*-bootstrap-*.txt
 ansible/tokens/
+ansible/licenses/
 
 # IDE
 .vscode/

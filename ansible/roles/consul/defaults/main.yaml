@@ -10,11 +10,19 @@ consul_group: "consul"
 
 consul_binary_version: "2.0.2"
 
+# consul_edition: "oss" or "enterprise". When "enterprise", the role installs
+# the "+ent" release artifact and renders license_path at the top level of
+# consul.hcl (Consul Enterprise licenses are required on every agent, not
+# just servers). See group_vars/all.yaml and
+# _context/wiki/enterprise-licensing-plan.md.
+consul_edition: "oss"
+
 consul_config_dir: "/etc/consul.d"
 consul_data_dir: "/opt/consul/data"
 consul_log_dir: "/var/log/consul"
 consul_log_file: "/var/log/consul/consul.log"
 consul_tls_dir: "/etc/consul.d/tls"
+consul_license_dir: "/etc/consul.d/license"
 consul_run_path: "/run/consul"
 consul_pid_file: "{{ consul_run_path }}/consul.pid"
 

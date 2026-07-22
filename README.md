@@ -219,6 +219,8 @@ The following files are git-ignored and must never be committed:
 | `ansible/tokens/vault-init-output.txt` | Full Vault initialization output |
 | `ansible/tokens/vault-root-token-secret-id.txt` | Vault root token |
 | `ansible/tokens/vault-unseal-key.txt` | Vault unseal key |
+| `ansible/licenses/nomad.hclic` | Nomad Enterprise license (only needed when `nomad_edition: "enterprise"`) |
+| `ansible/licenses/consul.hclic` | Consul Enterprise license (only needed when `consul_edition: "enterprise"`) |
 | `terraform/aws/terraform.tfvars` | AWS credentials and configuration |
 | `terraform/multipass/terraform.tfvars` | Local SSH key paths and VM sizing overrides |
 

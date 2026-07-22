@@ -59,6 +59,15 @@
         mode: "0600"
         notify: "Restart nomad"
 
+  - role: helper
+    when: nomad_edition == 'enterprise'
+    vars:
+      helper_file_copy_local:
+      - src: "{{ inventory_dir }}/licenses/nomad.hclic"
+        dst: "/etc/nomad.d/.license/license.hclic"
+        mode: "0600"
+        notify: "Restart nomad"
+
   - role: nomad
 
   post_tasks:

@@ -49,3 +49,12 @@ vault_binary_version: "1.20.1"
 dnsmasq_listen_addresses:
   - "127.0.0.1"
   - "172.17.0.1"
+
+# HashiCorp Enterprise licensing — see
+# _context/wiki/enterprise-licensing-plan.md. Set to "enterprise" to install
+# +ent binaries and load a license. License files (gitignored, not
+# committed) must exist at:
+#   ansible/licenses/nomad.hclic   — required on Nomad servers only
+#   ansible/licenses/consul.hclic  — required on all Consul agents
+nomad_edition: "oss"
+consul_edition: "oss"

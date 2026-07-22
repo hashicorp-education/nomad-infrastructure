@@ -38,6 +38,9 @@ telemetry {
 server {
   enabled          = true
   bootstrap_expect = {{ nomad_server_bootstrap_expect }}
+{% if nomad_edition == 'enterprise' %}
+  license_path = "{{ nomad_config_dir }}/.license/license.hclic"
+{% endif %}
 {% if nomad_cloud_auto_join_enabled %}
 
   server_join {

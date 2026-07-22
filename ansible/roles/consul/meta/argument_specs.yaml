@@ -23,6 +23,17 @@ argument_specs:
         default: "2.0.2"
         description: Consul release version to install.
 
+      consul_edition:
+        type: str
+        required: false
+        default: "oss"
+        choices: ["oss", "enterprise"]
+        description: >-
+          When "enterprise", installs the "+ent" release artifact and
+          renders license_path at the top level of consul.hcl, pointing at
+          a license file distributed by the calling playbook. Required on
+          every Consul agent (servers and clients), not just servers.
+
       consul_manage_user:
         type: bool
         required: false
