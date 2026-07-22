@@ -1,8 +1,20 @@
 # Consul API Gateway — Nomad job
 #
 # Deploys an Envoy-based Consul API Gateway in the `ingress` namespace.
-# The gateway terminates HTTPS on port 8447 and routes to mesh services
-# via the http-route config entries in this directory.
+# Two listeners, one per demo app, so both are reachable simultaneously
+# instead of sharing one path-based route where only the most-recently
+# applied http-route wins: 8447 (https-countdash, routes to countdash-web
+# via http-route-countdash.hcl) and 8448 (https-hashicups, routes to nginx
+# via http-route-hashicups.hcl). See gateway-listener.hcl and
+# _context/wiki/dedicated-ingress-node-plan.md.
+#
+# Constrained to the dedicated public ingress Nomad client
+# (meta.nodeRole = "ingress", set on exactly one client by Terraform/Ansible)
+# rather than being allowed to land on any client — see
+# _context/wiki/dedicated-ingress-node-plan.md. Both 8447 and 8448 are opened
+# unconditionally on that node's security group only
+# (aws_security_group.ingress_sg in terraform/aws/network.tf); they are
+# deliberately NOT open on the other clients.
 #
 # Prerequisites:
 #   1. Consul `api-gateway` and `inline-certificate` config entries applied
@@ -11,11 +23,11 @@
 #        nomad var put -namespace ingress \
 #          nomad/jobs/api-gateway/gateway/setup \
 #          consul_cacert=@ansible/.tls/ca.pem
-#   3. Port 8447 open in the AWS security group — already declared in
-#      terraform/aws/terraform.tfvars (extra_ingress_ports). If you haven't
-#      applied that, ansible/playbooks/update-security-group.yaml (invoked
-#      automatically from consul_nomad_api_gateway.yaml) opens it too; it
-#      checks for an existing rule first, so running both is harmless.
+#   3. terraform apply already ran with the dedicated ingress client present
+#      (ingress_client_count >= 1 in terraform/aws/terraform.tfvars) and at
+#      least one Nomad client has meta.nodeRole = "ingress" — confirm with
+#      `nomad node status -verbose <id> | grep nodeRole`. Without this, the
+#      job will hang unplaced (`no nodes met the constraints`).
 #
 # Run (preferred): ansible-playbook -i inventory.ini playbooks/consul_nomad_api_gateway.yaml
 # Run (job only):
@@ -30,15 +42,28 @@ job "api-gateway" {
   namespace = "ingress"
 
   group "gateway" {
-    count = 1
+    count          = 1
     shutdown_delay = "10s"
+
+    # Pins the gateway to the dedicated public ingress client — see the
+    # header comment above and _context/wiki/dedicated-ingress-node-plan.md.
+    constraint {
+      attribute = "${meta.nodeRole}"
+      operator  = "="
+      value     = "ingress"
+    }
 
     network {
       mode = "bridge"
 
-      port "https" {
+      port "https-countdash" {
         static = 8447
         to     = 8447
+      }
+
+      port "https-hashicups" {
+        static = 8448
+        to     = 8448
       }
     }
 
@@ -64,7 +89,7 @@ job "api-gateway" {
       }
 
       config {
-        image      = "hashicorp/consul:2.0.1"
+        image      = "hashicorp/consul:2.0.2"
         entrypoint = ["/bin/sh", "-c"]
         args = [
           "cp \"$(command -v consul)\" /alloc/consul && chmod +x /alloc/consul",

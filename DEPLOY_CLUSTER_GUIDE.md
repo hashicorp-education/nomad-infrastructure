@@ -9,6 +9,10 @@ The deployment has two phases:
 1. **Terraform** — Provisions AWS infrastructure (approximately five minutes)
 2. **Ansible** — Installs and configures Consul and Nomad (approximately 10–15 minutes)
 
+> **Working through a [Nomad tutorial](https://developer.hashicorp.com/nomad/tutorials)?**
+> See [_context/wiki/nomad-tutorial-scenario-mapping.md](_context/wiki/nomad-tutorial-scenario-mapping.md)
+> for which use case below satisfies each tutorial's prerequisites.
+
 ```mermaid
 flowchart TD
     START([Start]) --> TF1[Edit terraform.tfvars]
@@ -19,10 +23,17 @@ flowchart TD
     INV --> DEPS[ansible-galaxy install -r requirements.yaml]
     DEPS --> PICK{Choose use case}
 
+    PICK -->|"0 · Get Started (single-node)"| UC0[deploy_get_started.yaml]
     PICK -->|"1 · Consul only"| UC1[deploy_consul.yaml]
     PICK -->|"2 · Nomad only"| UC2[deploy_nomad.yaml]
     PICK -->|"3 · + service discovery"| UC3[deploy_consul_nomad_sd.yaml]
     PICK -->|"4 · + workload identity"| UC4[deploy_consul_nomad_wi.yaml]
+    PICK -->|"5 · + service mesh"| UC5[deploy_consul_nomad_mesh.yaml]
+    PICK -->|"6 · Nomad + Vault"| UC6[deploy_nomad_vault.yaml]
+
+    UC0 --> P0A[common_setup]
+    P0A --> P0B[get_started]
+    P0B --> P0Z([completion banner])
 
     UC1 --> P1A[common_setup]
     P1A --> P1B[consul_servers]
@@ -80,6 +91,14 @@ flowchart TD
     P5K --> P5L[consul_nomad_workload_identity]
     P5L --> P5M[consul_nomad_service_mesh]
     P5M --> P5Z([cluster_summary])
+
+    UC6 --> P6A[common_setup]
+    P6A --> P6B[nomad_servers]
+    P6B --> P6C[nomad_clients]
+    P6C --> P6D[nomad_acl_bootstrap]
+    P6D --> P6E[vault_servers]
+    P6E --> P6F[nomad_vault_integration]
+    P6F --> P6Z([cluster_summary])
 ```
 
 ## Deployment workflows
@@ -87,6 +106,18 @@ flowchart TD
 Each of the following use cases is a complete end-to-end checklist. Steps 1–4 are identical
 for all use cases. Follow only the checklist for your use case — each step links
 to the detailed section in this guide.
+
+### Use case Get Started: single-node Nomad agent (no Consul, no TLS, no ACLs)
+
+1. **[Install prerequisites](#prerequisites)**
+1. **[Configure AWS credentials](#aws-credentials)**
+1. **Set `server_count = 1` and `client_count = 0` in `terraform.tfvars`, then [provision infrastructure](#phase-1-provision-infrastructure-terraform)**
+1. **[Install Ansible Galaxy roles](#phase-2-cluster-configuration-ansible)**
+1. **[Deploy the single-node agent](#option-get-started-single-node-nomad-agent----deploy_get_startedyaml)**
+1. **Work through the [Get Started tutorials](https://developer.hashicorp.com/nomad/tutorials/get-started)**
+1. **[Clean up when done](#cleanup)**
+
+---
 
 ### Use case A: Consul cluster only
 
@@ -139,17 +170,30 @@ to the detailed section in this guide.
 
 ---
 
-### Use case E: Consul + Nomad with service discovery, workload identity, and service mesh
+### Use case E: Consul + Nomad with service discovery, workload identity, service mesh, and API gateway
 
 1. **[Install prerequisites](#prerequisites)**
 2. **[Configure AWS credentials](#aws-credentials)**
-3. **[Provision infrastructure](#phase-1-provision-infrastructure-terraform)**
+3. **Set `ingress_client_count = 1` in `terraform.tfvars`, then [provision infrastructure](#phase-1-provision-infrastructure-terraform)** — this Option is the only one that needs the dedicated public ingress client; every other Option should leave it at `0`
 4. **[Install Ansible Galaxy roles](#phase-2-cluster-configuration-ansible)**
 5. **[Deploy the cluster](#option-e-consul--nomad-with-service-discovery-workload-identity-and-service-mesh----deploy_consul_nomad_meshyaml)**
 6. **[Export environment variables](#post-deployment-set-environment-variables)**
 7. **[Deploy the service mesh apps and API Gateway](nomad-jobs/consul-mesh/README.md)**
 8. **[Verify the cluster](#post-deployment-verification)**
 9. **[Clean up when done](#cleanup)**
+
+---
+
+### Use case F: Nomad + Vault with workload identity (no Consul)
+
+1. **[Install prerequisites](#prerequisites)**
+2. **[Configure AWS credentials](#aws-credentials)**
+3. **[Provision infrastructure](#phase-1-provision-infrastructure-terraform)**
+4. **[Install Ansible Galaxy roles](#phase-2-cluster-configuration-ansible)**
+5. **[Deploy the cluster](#option-f-nomad--vault-with-workload-identity----deploy_nomad_vaultyaml)**
+6. **[Export environment variables](#post-deployment-set-environment-variables)**
+7. **[Verify the cluster](#post-deployment-verification)**
+8. **[Clean up when done](#cleanup)**
 
 ---
 
@@ -224,9 +268,10 @@ aws sts get-caller-identity
 | `subnet_cidr` | `10.0.1.0/24` | Public subnet CIDR |
 | `allowed_ssh_cidr` | `0.0.0.0/0` | CIDR allowed for SSH |
 | `server_count` | `3` | Number of server EC2 instances |
-| `client_count` | `2` | Number of client EC2 instances |
+| `client_count` | `2` | Number of (internal) client EC2 instances |
+| `ingress_client_count` | `0` | Number of dedicated public ingress client EC2 instances — runs the Consul API Gateway for Option E; the only client whose security group opens app-facing ports like `8447`. Terraform provisioning is shared across every Option and runs before you pick one, so this defaults to `0` and must be set to `1` explicitly in `terraform.tfvars` before provisioning if you intend to deploy Option E — see that section. See also [`_context/wiki/dedicated-ingress-node-plan.md`](_context/wiki/dedicated-ingress-node-plan.md). |
 | `server_instance_type` | `t3.medium` | Server EC2 instance type |
-| `client_instance_type` | `t3.medium` | Client EC2 instance type |
+| `client_instance_type` | `t3.medium` | Client EC2 instance type (used for both internal and ingress clients) |
 
 Always set `allowed_ssh_cidr` to your specific IP address or network range.
 
@@ -258,6 +303,18 @@ Defaults: [`ansible/roles/nomad/defaults/main.yaml`](ansible/roles/nomad/default
 | `nomad_acl_enabled` | `false` | Enable ACLs |
 | `nomad_tls_enabled` | `true` | Enable TLS |
 | `nomad_log_level` | `DEBUG` | Log level |
+
+### Ansible variables — Vault
+
+Defaults: [`ansible/roles/vault/defaults/main.yaml`](ansible/roles/vault/defaults/main.yaml)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `vault_binary_version` | `1.20.1` | Vault release to install |
+| `vault_tls_enabled` | `true` | Enable TLS |
+| `vault_cloud_auto_join_enabled` | `false` | Enable AWS Cloud Auto-Join for Raft `retry_join` |
+
+Vault uses Raft integrated storage — no external storage backend or Consul dependency.
 
 ---
 
@@ -337,6 +394,7 @@ ami_architecture     = "x86_64"
 # Instance configuration
 server_count         = 3   # Use odd numbers: 3, 5, or 7
 client_count         = 2
+ingress_client_count = 0   # Leave at 0 unless you're deploying Option E — see that section
 server_instance_type = "t3.micro"
 client_instance_type = "t3.medium"
 ```
@@ -410,13 +468,46 @@ ansible all -m ping -vvv
 
 Run all commands from the `ansible/` directory with `-i inventory.ini`.
 
-Four use case entrypoints cover the most common deployment scenarios. Each one
+Six use case entrypoints cover the most common deployment scenarios. Each one
 first runs `common_setup`, which tests Ansible connectivity and configures all
 hosts. Then the process executes the required sub-playbooks in order and
-finishes with a `cluster_summary` that prints tokens and ready-to-paste `export`
-commands. The playbooks enable ACLs and create the bootstrap tokens.
+finishes with a `cluster_summary` (or, for the Get Started option, a plain
+completion banner) that prints ready-to-paste `export` commands. The Consul/
+Nomad options (A-E) enable ACLs and create bootstrap tokens; the Get Started
+option disables ACLs and TLS entirely.
 
 Choose the option that matches your requirements.
+
+---
+
+### Option Get Started: single-node Nomad agent — `deploy_get_started.yaml`
+
+Deploys a single combined Nomad server+client node with no Consul, no TLS,
+and no ACLs — equivalent to `nomad agent -dev`. Use this for the
+[Get Started tutorials](https://developer.hashicorp.com/nomad/tutorials/get-started),
+which expect a zero-config single node rather than an HA cluster.
+
+Requires `server_count = 1` and `client_count = 0` in
+[`terraform/aws/terraform.tfvars`](terraform/aws/terraform.tfvars) — re-run
+`terraform apply` after changing these before running this playbook.
+
+```bash
+ansible-playbook -i inventory.ini deploy_get_started.yaml
+```
+
+Sub-playbooks executed in order:
+
+| Step | Sub-playbook | Hosts | What it does |
+|------|-------------|-------|--------------|
+| 1 | `common_setup` | `all` | Configures passwordless sudo; tests Ansible connectivity (ping) |
+| 2 | `get_started` | `[servers]` (the single node) | Installs Docker; installs Nomad 2.0.4 with `nomad_server_enabled: true` **and** `nomad_client_enabled: true` on the same node, `bootstrap_expect: 1`, TLS and ACLs disabled; waits for port 4646 |
+| 3 | completion banner | `localhost` | Prints SSH access, the plain-HTTP Nomad UI URL, and an `export NOMAD_ADDR=http://...` command |
+
+**Duration:** ~5 minutes (single node, no TLS cert generation, no ACL bootstrap)
+
+This scenario does not create any token files in `ansible/tokens/`, and
+`set-cluster-env.sh` does not apply since there is no Consul/Nomad ACL token
+to export — set `NOMAD_ADDR` manually as printed by the completion banner.
 
 ---
 
@@ -568,14 +659,25 @@ To remove what Ansible deployed, run the `teardown.yaml` playbook. Then run `uns
 
 ### Option E: Consul + Nomad with service discovery, workload identity, and service mesh — `deploy_consul_nomad_mesh.yaml`
 
-Extends Option D by enabling Consul Connect (service mesh) cluster-wide: Consul
-servers and clients are reconfigured with `connect.enabled = true` and a
-TLS-enabled gRPC port (`grpc_tls = 8503`); Nomad clients are reconfigured with
-`consul.grpc_address` / `consul.grpc_ca_file` so Nomad can bootstrap Envoy
-sidecars against Consul's TLS gRPC/xDS listener; a new Nomad `ingress`
-namespace and a Consul ACL binding rule for the built-in `api-gateway`
-templated policy are created (reusing the `nomad-workloads` JWT auth method
-from Option D — no new auth method).
+**Requires `ingress_client_count = 1` in `terraform.tfvars`**, set *before*
+running `terraform apply` in [Phase 1](#phase-1-provision-infrastructure-terraform) —
+this provisions the dedicated public client the API Gateway runs on. It
+defaults to `0` because Terraform provisioning is shared across every
+Option in this guide and runs before you pick one; every Option other than
+E should leave it at `0`. If you already provisioned without it, edit
+`terraform.tfvars` and re-run `terraform apply` — it's additive (adds one
+instance and one security group, doesn't touch existing servers/clients).
+
+Extends Option D by enabling Consul service mesh cluster-wide:
+
+- Consul servers and clients are reconfigured with `connect.enabled = true` and
+a TLS-enabled gRPC port (`grpc_tls = 8503`).
+- Nomad clients are reconfigured with `consul.grpc_address` /
+`consul.grpc_ca_file` so Nomad can bootstrap Envoy sidecars against Consul's TLS
+gRPC/xDS listener.
+- A new Nomad `ingress` namespace and a Consul ACL binding rule for the built-in
+`api-gateway` templated policy are created, reusing the `nomad-workloads` JWT
+auth method from Option D — no new auth method.
 
 Set Consul, Nomad, and CNI plugin versions in
 [`ansible/group_vars/all.yaml`](ansible/group_vars/all.yaml) before running:
@@ -605,6 +707,17 @@ nomad node status -verbose \
 # consul.connect = true   (must appear for every client node)
 ```
 
+Also confirm the dedicated public ingress client (provisioned by Terraform
+via `ingress_client_count`, see the variable table above) is tagged
+correctly — the API Gateway job below is constrained to schedule only there:
+
+```bash
+nomad node status -verbose \
+  $(nomad node status -short | grep ready | awk '{print $1}') \
+  | grep nodeRole
+# meta.nodeRole = ingress   (must appear for exactly one client node)
+```
+
 This playbook only configures the cluster infrastructure for service mesh. It
 does **not** deploy any mesh-enabled application jobs, Consul config entries
 (service-defaults, intentions, api-gateway listener), or the API Gateway
@@ -613,23 +726,108 @@ itself — those are an application-level concern applied separately. Follow
 full deploy order (service-defaults → intentions → TLS cert → gateway
 listener → http-route → mesh app job → API Gateway job), which deploys:
 
-- [`nomad-jobs/countdash/countdash-consul-service-mesh.nomad.hcl`](nomad-jobs/countdash/countdash-consul-service-mesh.nomad.hcl) and/or
-  [`nomad-jobs/hashicups/hashicups-consul-service-mesh.nomad.hcl`](nomad-jobs/hashicups/hashicups-consul-service-mesh.nomad.hcl) — the two demo apps, mesh-enabled with Envoy sidecars and explicit `upstreams`
-- [`nomad-jobs/consul-mesh/api-gateway.nomad.hcl`](nomad-jobs/consul-mesh/api-gateway.nomad.hcl) — an Envoy-based Consul API Gateway in the `ingress` namespace, terminating HTTPS on port 8447 and routing to whichever demo app's `http-route` is currently applied
-
-> **Note:** only one app's `http-route` can be active at a time — both
-> `http-route-countdash.hcl` and `http-route-hashicups.hcl` match on
-> `Path.Match = "prefix", Value = "/"`. To switch which app the gateway
-> serves, delete the active route and apply the other:
-> `consul config delete -kind http-route -name countdash && consul config write nomad-jobs/consul-mesh/http-route-hashicups.hcl`.
+- [`nomad-jobs/consul-mesh/countdash-transparent-proxy.nomad.hcl`](nomad-jobs/consul-mesh/countdash-transparent-proxy.nomad.hcl) and/or
+  [`nomad-jobs/consul-mesh/hashicups-consul-service-mesh.nomad.hcl`](nomad-jobs/consul-mesh/hashicups-consul-service-mesh.nomad.hcl) — the two demo apps, mesh-enabled with Envoy sidecars. Countdash defaults to Consul's `transparent_proxy` mode (see below); HashiCups still uses explicit `upstreams`.
+- [`nomad-jobs/consul-mesh/api-gateway.nomad.hcl`](nomad-jobs/consul-mesh/api-gateway.nomad.hcl) — an Envoy-based Consul API Gateway in the `ingress` namespace with two listeners, one per demo app: `https-countdash` on port 8447 and `https-hashicups` on port 8448, so both apps are reachable simultaneously rather than sharing one path-based route. Constrained to always schedule on the dedicated public ingress client (`meta.nodeRole = "ingress"`) — the only client whose security group opens these ports — rather than any client, so the gateway's public address is fixed and known ahead of time. See [`_context/wiki/dedicated-ingress-node-plan.md`](_context/wiki/dedicated-ingress-node-plan.md).
 
 If the process encounters issues, refer to the [Troubleshooting section](#troubleshooting) and
 [_context/wiki/api-gateway-envoy-bootstrap-troubleshooting.md](_context/wiki/api-gateway-envoy-bootstrap-troubleshooting.md).
+
+**Why transparent proxy is the default for Countdash (live-verified):**
+Consul's `transparent_proxy` mode needs no app-side rewiring — countdash-web
+calls Consul's real DNS name and Envoy intercepts the connection — instead
+of an explicit `upstreams` block bound to a fixed loopback port. See
+[_context/wiki/transparent-proxy-vs-upstreams.md](_context/wiki/transparent-proxy-vs-upstreams.md)
+for the tradeoffs. `consul_nomad_service_mesh.yaml` (run above) already
+installs the required `consul-cni` CNI plugin and applies the Nomad ACL
+policy the API Gateway job needs, so no separate manual steps remain.
+Full rollout, four real bugs found and fixed along the way (a Consul
+DNS-ACL-token regression, the wrong DNS name convention for
+transparent-proxy interception, and two stale-catalog-entry cleanups), and
+verification details in
+[_context/wiki/transparent-proxy-enablement-plan.md](_context/wiki/transparent-proxy-enablement-plan.md).
+
+**Alternative: explicit `upstreams` variant.**
+[`nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl`](nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl)
+uses an explicit `upstreams` block instead — no `consul-cni` dependency,
+every dependency spelled out in the job spec. Can run alongside the
+transparent-proxy job (independent job IDs):
+
+```bash
+nomad job run nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl
+```
 
 To remove what Ansible deployed, first stop the mesh app and gateway jobs (see
 the Clean up section of [nomad-jobs/consul-mesh/README.md](nomad-jobs/consul-mesh/README.md)),
 then run the `teardown.yaml` playbook. Then run `unset-cluster-env.sh` to
 remove the environment variables from your terminal.
+
+---
+
+### Option F: Nomad + Vault with workload identity — `deploy_nomad_vault.yaml`
+
+Deploys a standalone Nomad cluster (no Consul) alongside a self-hosted Vault
+cluster (Raft integrated storage, TLS), then configures a Vault JWT auth
+method that validates Nomad workload identity JWTs, plus a scoped Vault ACL
+policy and role. Nomad tasks that declare a `vault {}` block automatically
+exchange their workload identity JWT for a short-lived, scoped Vault token —
+no static Vault token in job specs or Nomad agent configuration.
+
+Set Nomad, CNI plugin, and Vault versions in
+[`ansible/group_vars/all.yaml`](ansible/group_vars/all.yaml) before running:
+
+```bash
+ansible-playbook -i inventory.ini deploy_nomad_vault.yaml
+```
+
+Sub-playbooks executed in order:
+
+| Step | Sub-playbook | Hosts | What it does |
+|------|-------------|-------|--------------|
+| 1 | `common_setup` | `all` | Configures passwordless sudo; tests Ansible connectivity (ping) |
+| 2 | `nomad_servers` | `[servers]` | Installs Nomad 2.0.4 in server mode; generates self-signed TLS certificates |
+| 3 | `nomad_clients` | `[clients]` | Installs Nomad 2.0.4 in client mode; installs CNI plugins and Docker CE |
+| 4 | `nomad_acl_bootstrap` | `servers[0]` | Bootstraps Nomad ACL; saves management token to `ansible/tokens/` |
+| 5 | `vault_servers` | `[servers]` | Installs Vault 1.20.1 with Raft integrated storage and TLS (reuses the shared cluster CA); initializes Vault with a single unseal key share (`-key-shares=1 -key-threshold=1`, tutorial simplification — do not reuse for production); unseals every server; saves root token and unseal key to `ansible/tokens/vault-*.txt` |
+| 6 | `nomad_vault_integration` | `servers[0]` + `[servers]` + `[clients]` | Enables Vault JWT auth method `jwt-nomad` (JWKS URL points to the first Nomad server's HTTPS port 4646, trusted via the shared self-signed CA); creates ACL policy `nomad-workloads-policy` scoped to `secret/data/nomad/*`; creates JWT role `nomad-workloads`; enables a KV v2 secrets engine at `secret/`; reconfigures Nomad servers and clients with a top-level `vault { jwt_auth_backend_path; default_identity }` block; restarts Nomad |
+| 7 | `cluster_summary` | `localhost` | Prints Nomad and Vault tokens, all `export` commands, and both UI URLs |
+
+**Status summary includes:** Nomad bootstrap token, Vault root token and unseal key, `export NOMAD_ADDR`, `export NOMAD_TOKEN`, `export VAULT_ADDR`, `export VAULT_TOKEN`, and both UI URLs.
+
+Duration: approximately 15 minutes.
+
+Vault's API port (8200) is **not** open in the security group by default. To
+reach the Vault UI or API from outside the VPC, add `8200` to
+`extra_ingress_ports` in `terraform.tfvars` before running `terraform apply`,
+or use an SSH tunnel:
+
+```bash
+ssh -o 'IdentitiesOnly=yes' -i ssh_key.pem -L 8200:localhost:8200 ubuntu@<server-ip>
+```
+
+Verify the JWT auth method and secrets engine after deployment:
+
+```bash
+vault auth list
+# Expected output includes: jwt-nomad/
+
+vault secrets list
+# Expected output includes: secret/
+```
+
+**Gap vs. the official tutorial:** the "Integrate Nomad with Vault" tutorial
+category on developer.hashicorp.com contains one tutorial, "Generate mTLS
+certificates for Nomad using Vault", which uses Vault's PKI secrets engine and
+consul-template to dynamically generate and rotate Nomad's own mTLS
+certificates. This use case implements the more general "Nomad tasks fetch
+secrets from Vault via workload identity" pattern instead, which is not
+reproduced by that specific tutorial but is a common, broadly useful
+Nomad+Vault integration. See
+[_context/wiki/nomad-tutorial-scenario-mapping.md](_context/wiki/nomad-tutorial-scenario-mapping.md).
+
+If the process encounters issues, refer to the [Troubleshooting section](#troubleshooting).
+
+To remove what Ansible deployed, run the `teardown.yaml` playbook. Then run `unset-cluster-env.sh` to remove the environment variables from your terminal.
 
 ---
 
@@ -644,7 +842,22 @@ source ./set-cluster-env.sh
 
 The script reads the first server IP from `inventory.ini` and token values from
 `ansible/tokens/`. It only exports variables whose token files exist, so it
-works correctly for all five options.
+works correctly for all five Consul/Nomad options (A-E).
+
+It also detects whether `inventory.ini` was generated for AWS or Multipass
+and exports `NOMAD_VAR_deployment_platform` accordingly (`aws` or
+`generic`). Some job specs (both Countdash service-discovery variants,
+HashiCups' `nginx` group) use this to automatically register the correct
+externally-reachable address in Consul/Nomad's service catalog — see
+[Deploy a Nomad job](#deploy-a-nomad-job) below and
+[`_context/wiki/deployment-platform-auto-detection.md`](_context/wiki/deployment-platform-auto-detection.md)
+for the full mechanism. Always source this script before running
+`nomad job run` on those job specs, on either platform.
+
+> **Get Started option:** `set-cluster-env.sh` exports nothing for this
+> scenario since it has no ACL bootstrap token. Use the `export
+> NOMAD_ADDR=http://...` command printed by `deploy_get_started.yaml`'s
+> completion banner instead.
 
 ### Manual export (without the helper script)
 
@@ -791,11 +1004,21 @@ Use the bootstrap token values to log into the UIs. Find the values in these fil
 
 ## Deploy a Nomad job
 
-The job specification files for the example Countdash app are located in the
-root-level `nomad-jobs` directory. The app has a web UI that connects to an API
-on the server. Port 9002 (web UI) is included in the default `extra_ingress_ports`
-list in `terraform.tfvars`. To add ports for your own applications, see
+The job specification files for the example Countdash app are located under
+the root-level `nomad-jobs` directory, one subdirectory per service-discovery
+mechanism: `nomad-jobs/nomad-sd/` (Nomad-native) and `nomad-jobs/consul-sd/`
+(Consul). The app has a web UI that connects to an API on the server. Port
+9002 (web UI) is included in the default `extra_ingress_ports` list in
+`terraform.tfvars`. To add ports for your own applications, see
 [Managing security group ports](#managing-security-group-ports).
+
+Both variants automatically register the Countdash web UI's correct
+externally-reachable address (EC2 public hostname on AWS, the bridged VM
+address on Multipass) as long as you've sourced
+[`ansible/set-cluster-env.sh`](#post-deployment-set-environment-variables)
+first — no manual `-var` flag needed on either platform. See
+[`_context/wiki/deployment-platform-auto-detection.md`](_context/wiki/deployment-platform-auto-detection.md)
+for how this works.
 
 ### Deploy the app with Nomad for service discovery
 
@@ -803,11 +1026,11 @@ This Countdash version uses Nomad for service discovery. For details on service
 discovery, refer to the [Configure service discovery
 documentation](https://developer.hashicorp.com/nomad/docs/job-declare/service-discovery).
 
-Change to the `nomad-jobs` directory and deploy the job.
+Change to the `nomad-jobs/nomad-sd` directory and deploy the job.
 
 ```bash
 nomad job run countdash-nomad-service-discovery.nomad.hcl
-nomad job status countdash
+nomad job status countdash-nomad-sd
 ```
 
 Find the Countdash web application's public IP and port.
@@ -819,7 +1042,7 @@ nomad service info -json countdash-web
 The `Address` field contains the public URL, and the `Port` field
 contains the port. Access the Countdash web UI at `http://<Address>:<Port>`.
 
-Purge the job with `nomad job stop --purge countdash`.
+Purge the job with `nomad job stop --purge countdash-nomad-sd`.
 
 ### Deploy the app with Consul for service discovery
 
@@ -828,11 +1051,12 @@ service discovery
 documentation](https://developer.hashicorp.com/nomad/docs/job-declare/service-discovery)
 for more information.
 
-Change to the `nomad-jobs` directory and deploy the job.
+Change to the `nomad-jobs/consul-sd` directory and deploy the job. The same
+command works on both Multipass and AWS:
 
 ```bash
 nomad job run countdash-consul-service-discovery.nomad.hcl
-nomad job status countdash
+nomad job status countdash-consul-sd
 ```
 
 Use the Consul API to find the Countdash public address. Before running the following command, complete these steps:
@@ -1004,8 +1228,8 @@ ansible-playbook -i inventory.ini playbooks/consul_dns_token.yaml
 After it completes, restart the Nomad job:
 
 ```bash
-nomad job stop countdash
-nomad job run nomad-jobs/countdash-consul-service-discovery.nomad.hcl
+nomad job stop countdash-consul-sd
+nomad job run nomad-jobs/consul-sd/countdash-consul-service-discovery.nomad.hcl
 ```
 
 **Prevention:** Always run `teardown.yaml` before destroying infrastructure.
@@ -1244,6 +1468,38 @@ export NOMAD_TOKEN=$(cat ansible/tokens/nomad-bootstrap-secret-id.txt)
 nomad server members
 nomad acl token self
 ```
+
+---
+
+## Optional: external Application Load Balancer
+
+For the [Load Balancer Integrations tutorial](https://developer.hashicorp.com/nomad/tutorials/load-balancing),
+`terraform/aws/loadbalancer.tf` can provision an internet-facing ALB in front
+of the Nomad clients. It's disabled by default and works with any deployed
+use case (Get Started, A-E) — the ALB simply forwards HTTP traffic to a fixed
+port on every client.
+
+Edit `terraform/aws/terraform.tfvars`:
+
+```hcl
+enable_load_balancer      = true
+load_balancer_target_port = 9002  # defaults to the Countdash demo app's web UI port
+```
+
+```bash
+cd terraform/aws
+terraform plan
+terraform apply
+terraform output load_balancer_url
+```
+
+This creates a second, instance-free subnet in a second Availability Zone (ALBs
+require two AZs), a dedicated security group, a target group with one
+attachment per client instance, and a port-80 listener. See
+[_context/wiki/nomad-tutorials-infrastructure-roadmap.md](_context/wiki/nomad-tutorials-infrastructure-roadmap.md#phase-4--load-balancer-integration-implemented)
+for what this does and does not reproduce from the tutorial.
+
+To remove the ALB, set `enable_load_balancer = false` and re-apply.
 
 ---
 

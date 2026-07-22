@@ -20,6 +20,8 @@ The CNI role installs Container Network Interface (CNI) plugins required for Nom
 | `cni_plugins_path` | string | `/opt/cni/bin` | Installation directory for CNI binaries |
 | `cni_plugins_config_path` | string | `/opt/cni/config` | Directory for CNI configuration files |
 | `cni_configs` | list | `[]` | List of CNI configuration files to create |
+| `consul_cni_enabled` | bool | `false` | Install the separate `consul-cni` plugin, required only for Nomad's Consul Connect *transparent proxy* mode |
+| `consul_cni_version` | string | `1.6.2` | Version of `consul-cni` to install |
 
 ## CNI plugins included
 
@@ -32,6 +34,20 @@ The installation includes standard CNI plugins:
 - ptp
 - vlan
 - And more...
+
+## consul-cni (transparent proxy only)
+
+`consul-cni` is a separate, single-binary plugin published at
+[releases.hashicorp.com/consul-cni](https://releases.hashicorp.com/consul-cni),
+distinct from the `containernetworking/plugins` bundle above. It is **not**
+needed for plain bridge-mode Consul service mesh using explicit `upstreams`
+blocks (this repo's default mesh job specs) — only for Nomad's
+`transparent_proxy {}` mode, which uses it to install `iptables` traffic
+redirection rules into each allocation's network namespace at CNI setup
+time. Installed into the same `cni_plugins_path` as the standard plugins,
+conditional on `consul_cni_enabled: true` (set by the service-mesh playbook,
+not the base client playbook — see
+`_context/wiki/transparent-proxy-enablement-plan.md`).
 
 ## Usage
 

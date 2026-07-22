@@ -1,0 +1,74 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook: deploy_nomad_vault.yaml
+#
+# Deploys a standalone Nomad cluster integrated with a self-hosted Vault
+# cluster for dynamic secrets via Nomad workload identity (no Consul):
+#   1. Configures all hosts
+#   2. Tests Ansible connectivity
+#   3. Deploys Nomad servers and clients
+#   4. Bootstraps Nomad ACL
+#   5. Deploys and initializes a Vault server cluster (Raft storage, TLS)
+#   6. Configures Nomad-Vault workload identity (JWT auth method, ACL policy
+#      and role, and vault {} blocks in Nomad server and client config)
+#
+# With workload identity enabled, Nomad tasks exchange a short-lived JWT for
+# a scoped Vault token automatically via a `vault {}` block in the task spec —
+# no static Vault token in job specs or Nomad agent configuration.
+#
+# Gap vs. the official "Integrate Nomad with Vault" tutorial: HashiCorp's
+# tutorial in this category ("Generate mTLS certificates for Nomad using
+# Vault") uses Vault's PKI secrets engine and consul-template to dynamically
+# generate and rotate Nomad's own mTLS certificates. This playbook instead
+# implements the more general "Nomad tasks fetch secrets from Vault via
+# workload identity" pattern, which is not reproduced by any official
+# tutorial in this category but is a common, broadly useful Nomad+Vault
+# integration. See _context/wiki/nomad-tutorial-scenario-mapping.md for
+# details.
+#
+# Usage:
+#   ansible-playbook -i inventory.ini deploy_nomad_vault.yaml
+#
+# Set environment variables after deployment:
+#   source ./set-cluster-env.sh
+#   source ./unset-cluster-env.sh   # to unset
+
+# ── Configure all hosts and test connectivity ────────────────────────────────
+
+- name: Import common setup
+  ansible.builtin.import_playbook: playbooks/common_setup.yaml
+
+# ── Deploy Nomad ──────────────────────────────────────────────────────────────
+
+- name: Import Nomad server playbook
+  ansible.builtin.import_playbook: playbooks/nomad_servers.yaml
+
+- name: Import Nomad client playbook
+  ansible.builtin.import_playbook: playbooks/nomad_clients.yaml
+
+- name: Bootstrap Nomad ACL
+  ansible.builtin.import_playbook: playbooks/nomad_acl_bootstrap.yaml
+
+# ── Deploy Vault ──────────────────────────────────────────────────────────────
+
+- name: Import Vault server playbook
+  ansible.builtin.import_playbook: playbooks/vault_servers.yaml
+
+# ── Nomad-Vault integration ───────────────────────────────────────────────────
+
+- name: Configure Nomad-Vault workload identity
+  ansible.builtin.import_playbook: playbooks/nomad_vault_integration.yaml
+
+# ── Cluster status summary ────────────────────────────────────────────────────
+
+- name: Import cluster summary
+  ansible.builtin.import_playbook: playbooks/cluster_summary.yaml
+  vars:
+    summary_title: "Nomad + Vault (Workload Identity) Configuration Complete!"
+    summary_show_nomad_tokens: true
+    summary_show_nomad_env: true
+    summary_show_nomad_ui: true
+    summary_show_vault_tokens: true
+    summary_show_vault_env: true
+    summary_show_vault_ui: true

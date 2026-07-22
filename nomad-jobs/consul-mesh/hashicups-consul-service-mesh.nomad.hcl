@@ -22,7 +22,7 @@
 #   3. Deploy and verify the API Gateway (see nomad-jobs/consul-mesh/README.md).
 #
 # Run:
-#   nomad job run nomad-jobs/hashicups/hashicups-consul-service-mesh.nomad.hcl
+#   nomad job run nomad-jobs/consul-mesh/hashicups-consul-service-mesh.nomad.hcl
 
 #-------------------------------------------------------------------------------
 # Job Variables

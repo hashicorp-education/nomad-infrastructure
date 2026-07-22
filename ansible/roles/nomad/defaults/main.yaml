@@ -28,6 +28,17 @@ nomad_server_bootstrap_expect: 3
 nomad_client_enabled: false
 nomad_client_servers: []
 
+# Nomad client meta stanza. Sourced from the per-host `nomad_node_role`
+# inventory var (set by terraform/aws/inventory.tpl) rather than passed
+# explicitly by any play, so every play that renders nomad.hcl picks it up
+# automatically — this repo has hit the "forgot to re-supply a var on
+# re-render" bug class before (see acl-architecture.md §10 and
+# _context/wiki/transparent-proxy-enablement-plan.md Bug 2). Currently used
+# to mark the dedicated public ingress client (nomad_node_role=ingress) so
+# nomad-jobs/consul-mesh/api-gateway.nomad.hcl can constrain on
+# ${meta.nodeRole} — see _context/wiki/dedicated-ingress-node-plan.md.
+nomad_client_meta: "{{ {'nodeRole': nomad_node_role} if nomad_node_role is defined else {} }}"
+
 # ACL configuration
 nomad_acl_enabled: false
 
@@ -95,3 +106,31 @@ nomad_client_use_consul_token: false
 nomad_consul_connect_enabled: false
 nomad_consul_grpc_address: "127.0.0.1:8503"
 nomad_consul_grpc_ca_file: "{{ nomad_config_dir }}/.tls/ca.crt"
+
+# Vault integration configuration (Nomad 1.7+ workload identity)
+#
+# nomad_vault_integration_enabled: enables the top-level vault {} block.
+#   Set to true after running vault_servers.yaml and
+#   nomad_vault_integration.yaml.
+#
+# nomad_vault_workload_identity_enabled: adds jwt_auth_backend_path and
+#   default_identity to the vault block, so Nomad injects a Vault workload
+#   identity JWT into every task automatically instead of requiring a static
+#   Vault token. This is the only supported mode in this repo — there is no
+#   legacy static-token fallback (unlike the Consul integration, which
+#   supports both modes).
+nomad_vault_integration_enabled: false
+nomad_vault_workload_identity_enabled: false
+
+# Address of the Vault cluster this agent talks to. Nomad servers (which run
+# Vault locally per vault_servers.yaml) should use their own loopback address;
+# Nomad clients (which do not run Vault) point at the first Vault server.
+nomad_vault_address: "https://127.0.0.1:8200"
+
+# Vault JWT auth method path configured by nomad_vault_integration.yaml.
+nomad_vault_jwt_auth_backend_path: "jwt-nomad"
+
+# Default workload identity Nomad injects into every task for Vault access.
+# The audience must match bound_audiences in the Vault JWT role.
+nomad_vault_default_identity_aud: "vault.io"
+nomad_vault_default_identity_ttl: "1h"

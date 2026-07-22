@@ -5,7 +5,7 @@ Parents = [
   {
     Kind        = "api-gateway"
     Name        = "api-gateway"
-    SectionName = "https"
+    SectionName = "https-hashicups"
   }
 ]
 

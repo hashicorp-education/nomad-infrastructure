@@ -137,7 +137,7 @@ proxy such as Envoy via Consul Connect.
 ## Applied fix location
 
 The fix is implemented in the `nginx` task's `template` block inside
-[`nomad-jobs/hashicups/hashicups.nomad.hcl`](../../nomad-jobs/hashicups/hashicups.nomad.hcl).
+[`nomad-jobs/consul-sd/hashicups.nomad.hcl`](../../nomad-jobs/consul-sd/hashicups.nomad.hcl).
 
 ---
 
