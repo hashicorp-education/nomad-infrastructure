@@ -739,3 +739,18 @@ All images verified live against Docker Hub or GHCR manifests.
 | `hashicorpdemoapp/payments` (all versions) | ❌ amd64 only | Blocking image for all HashiCups tutorials |
 | `hashicorpdev/counter-api:v3` | ❌ amd64 only | |
 | `hashicorpdev/counter-dashboard:v3` | ❌ amd64 only | |
+
+
+> Note about Countdash, which is `counter-api` and `counter-dashboard` Docker
+> images. `v3` and `latest` are not multi-arch images. DockerHub
+> does have arm64 images that append the OS architecture (`v3-arm64`,
+> `v3-amd64`). So we solved the architecture issue in the
+> job spec by appending the `attr.cpu.arch` to the image name.
+
+```hcl
+config {
+  image          = "hashicorpdev/counter-dashboard:${var.countdash-web-version}-${attr.cpu.arch}"
+  auth_soft_fail = true
+  ports = ["countdash-web"]
+}
+```

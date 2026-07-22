@@ -33,6 +33,14 @@ categories, rather than maintaining a separate cluster per category.
 | Load Balancer Integrations | 1 | **Phase 4** — implemented: optional ALB via `terraform/aws/loadbalancer.tf` (`enable_load_balancer = true`) |
 | Federated Workload Identity | 1 | **Phase 5** — net-new, highest risk: requires a **second concurrent cluster** (breaks the "one shared cluster" model — federation is inherently cross-cluster) |
 | Nomad Enterprise | 5 | **Phase 6** — implemented for the license-install + deploy-Enterprise-cluster tutorials (3 of 5); **Phase 7** covers the remaining 2 (Dynamic Application Sizing / Nomad Autoscaler), planned but not implemented |
+| Job Specifications | 5 | **Phase 2** — job-spec/tooling concern, no new infra; works against any Nomad cluster (Scenario B). 2 of 5 (the Java task driver tutorials) are a gap — no role in this repo installs a JDK/JRE on clients |
+| AI Workloads | 3 | **Phase 2** — works against Scenario B/C using the existing Docker driver; the dedicated-cluster and node-pool tutorials are a partial match / gap (no GPU instance type, no `node_pool` support anywhere in the `nomad` role) |
+| Autoscaler | 5 | **Phase 7** — same Nomad Autoscaler dependency as the Enterprise Dynamic Application Sizing tutorials above; not implemented |
+| Migrate a Monolith | 6 | **Phase 2** — Scenario C/E cover 4 of 6 directly (this repo's existing `nomad-jobs/consul-sd/` and `nomad-jobs/consul-mesh/` HashiCups jobs already implement the setup, SD, and mesh+gateway steps); the autoscale tutorial is a Phase 7 gap |
+| Advanced Scheduling | 1 | **Phase 2** — enabled at runtime via `nomad operator scheduler set-config`, no new infra; works against any deployed cluster |
+| Manage Clusters | 2 | **Phase 2** — the Prometheus metrics tutorial is a direct match (existing `nomad_telemetry_enabled`/`nomad_telemetry_prometheus_metrics` vars); the Grafana/service-mesh-metrics tutorial is a partial match (Prometheus/Grafana deployment itself isn't automated) |
+| Windows | 1 | **Gap** — no Windows AMI/Packer image or WinRM provisioning; not covered by any phase |
+| Templates | 2 | **Phase 2** — same 2 Levant tutorials cross-listed under Job Specifications above |
 
 ## Phase 1 — "Get Started" single-node scenario (implemented)
 
@@ -55,13 +63,25 @@ Terraform resources were needed.
 
 No new Terraform/Ansible code. Deliverable:
 [nomad-tutorial-scenario-mapping.md](nomad-tutorial-scenario-mapping.md), a
-table mapping each tutorial under Cluster Setup, Nomad Variables, Service
-Discovery, Consul Integration, and Edge Workloads to the existing
-`deploy_*.yaml` scenario that satisfies its prerequisites. Surfaced two
-gaps: the GCP/Azure Cluster Setup tutorials aren't applicable to this
-AWS-only repo, and Nomad's own built-in (Consul-independent) service mesh
-(used in one Service Discovery tutorial) is a different feature from this
-repo's Consul Connect-based Option E and isn't implemented here.
+table mapping every tutorial across all 18 collections on
+[developer.hashicorp.com/nomad/tutorials](https://developer.hashicorp.com/nomad/tutorials)
+to the existing `deploy_*.yaml` scenario that satisfies its prerequisites.
+Originally scoped to 5 categories (Cluster Setup, Nomad Variables, Service
+Discovery, Consul Integration, Edge Workloads); extended 2026-07-22 to cover
+the remaining 13 (Get Started, Job Specifications, AI Workloads, Autoscaler,
+Migrate a Monolith, Advanced Scheduling, Enterprise, Manage Clusters,
+Windows, Templates, Load Balancer Integrations, Vault Integration, and
+Federated Workload Identity — the last three already had their own phases
+below). Surfaced ten gaps in total, including: GCP/Azure Cluster Setup
+tutorials aren't applicable to this AWS-only repo; Nomad's own built-in
+(Consul-independent) service mesh (used in one Service Discovery tutorial)
+is a different feature from this repo's Consul Connect-based Option E and
+isn't implemented here; Windows Nomad clients, the Java task driver, and
+Nomad node pools aren't provisioned by any role; and 8 tutorials across
+Autoscaler, Enterprise (Dynamic Application Sizing), and Migrate a Monolith
+depend on the not-yet-implemented Nomad Autoscaler (Phase 7). See
+[nomad-tutorial-scenario-mapping.md](nomad-tutorial-scenario-mapping.md#known-gaps-surfaced-by-this-mapping)
+for the full gap list.
 
 ## Phase 3 — Vault integration (implemented)
 
