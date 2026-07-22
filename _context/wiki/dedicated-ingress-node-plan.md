@@ -1,7 +1,10 @@
 # Plan: Dedicated public "ingress" Nomad client for the API Gateway
 
-**Status: proposed, not yet implemented.** Approved by the user 2026-07-21;
-implementation deferred to a future session.
+**Status: implemented and verified end-to-end on the live AWS cluster.**
+Approved by the user 2026-07-21; implemented and verified 2026-07-22. See
+"Results (2026-07-22)" at the end of this page for what shipped, one real
+pre-existing bug found and fixed along the way, and the live verification
+evidence.
 
 ## Context
 
@@ -237,3 +240,152 @@ Matches the sibling repo's proven syntax exactly.
   `meta.nodeRole` + `constraint` pattern this plan adapts; see
   `aws-ec2-data_plane.tf`, `agent-config-nomad_client.hcl`, and
   `shared/jobs/04.api-gateway.nomad.hcl` there.
+
+## Results (2026-07-22)
+
+Implemented exactly as planned in §1–4, with two adjustments discovered
+only once implementation started — both against the live 3-server/3-client
+AWS cluster (Consul v2.0.1, Nomad v2.0.4):
+
+**Adjustment 1 — a real bug in `consul_nomad_api_gateway.yaml` that would
+have quietly defeated the whole plan.** That "shortcut" playbook imported
+`update-security-group.yaml` with `custom_port: 8447`, which opens 8447 on
+the **shared** `nomad_consul_sg` group used by every client — i.e. running
+the shortcut playbook would have re-opened 8447 on the internal clients
+too, on top of the new dedicated `ingress_sg`. It also generated the
+gateway's self-signed cert with every client's IP in the SAN list, and
+probed every client's `:8447` for reachability post-deploy. Fixed by: (1)
+removing the SG-open import entirely — 8447 is now opened unconditionally
+by Terraform's `ingress_sg`, so the playbook doesn't need to touch security
+groups at all; (2) adding an `ingress_clients` fact (`groups['clients'] |
+map('extract', hostvars) | selectattr('nomad_node_role', 'equalto',
+'ingress') | map(attribute='inventory_hostname') | list`) and using it for
+both the cert's SAN list and the post-deploy reachability probe, instead of
+`groups['clients']`.
+
+**Adjustment 2 — a pre-existing idempotency bug in `consul_dns_token.yaml`,
+unrelated to this plan but blocking it.** Its per-client Consul node-identity
+agent token creation used a single "sentinel" file
+(`consul-client-agent-{{ groups['clients'][0] }}-secret-id.txt`) to decide
+whether *any* client needed a token created. Since the two original clients
+already had tokens, adding the third (ingress) client via `terraform apply`
+caused the sentinel check to report "already done" and skip token creation
+entirely — the new node never got a token, and `deploy_consul_nomad_wi.yaml`
+failed with `fatal: [nomad-consul-ingress-client-1 -> localhost]` reading a
+token file that didn't exist. Fixed by replacing the single sentinel with a
+per-client `stat` loop + `rejectattr('stat.exists')` to compute exactly
+which clients are missing a token, and looping token creation over only
+those. This is a general fix (any future client added to an
+already-bootstrapped cluster benefits), not ingress-node-specific, but it
+was surfaced by and blocking this plan's live verification.
+
+**Verification — all steps from the Verification section above passed:**
+
+1. `terraform plan` was additive-only: `aws_instance.ingress_clients[0]`
+   and `aws_security_group.ingress_sg` created, `aws_security_group
+   .nomad_consul_sg` updated in-place (8447 rule removed) — zero
+   destroy/replace of the existing 3 servers or 2 clients.
+2. Post-apply, `ansible/inventory.ini`'s `[clients]` block showed
+   `nomad_node_role=internal` on the two original clients and
+   `nomad_node_role=ingress` on the new `nomad-consul-ingress-client-1`
+   (public IP `3.137.180.227`), exactly as `inventory.tpl` was designed to
+   emit.
+3. `deploy_consul_nomad_wi.yaml` then `consul_nomad_service_mesh.yaml` both
+   ran clean (zero failures) after the two fixes above.
+4. `nomad node status -verbose <id> | grep nodeRole` confirmed
+   `meta.nodeRole = ingress` on exactly one node (Nomad-assigned name
+   `nomad-client-3`, since the ingress client is folded into the same
+   sequential `nomad_clients.yaml` numbering as planned in §2) and
+   `meta.nodeRole = internal` on the other two.
+5. Stopped, purged, and redeployed `api-gateway.nomad.hcl` **three times**;
+   every deployment landed on `nomad-client-3` and reached healthy on the
+   first attempt each time — confirmed via `nomad alloc status | grep
+   "Node Name"` after each redeploy.
+6. Confirmed the security-group split directly: `curl` to
+   `https://3.141.30.73:8447/` and `https://3.145.38.9:8447/` (the two
+   internal clients) both timed out; `curl` to
+   `https://3.137.180.227:8447/` (the ingress client) returned `HTTP 200`
+   immediately.
+7. Full functional check: 10/10 `curl -sk https://3.137.180.227:8447/`
+   returned `HTTP 200` with the real Countdash page.
+
+**Adjustment 3 — `ingress_client_count`'s default, found when asked "will
+Options A-C still work as expected?" after the above was already verified.**
+§1 above (and the `variable "ingress_client_count"` block as originally
+written) defaulted it to `1`. That's fine for *this* cluster, but
+`terraform.tfvars` is shared across every Option in `DEPLOY_CLUSTER_GUIDE.md`
+— Terraform provisioning happens once, before any Option is chosen — so a
+default of `1` would silently provision the extra instance and open `8447`
+for Get Started/Option A/B/C/F too, none of which use or want it. Worst for
+Get Started specifically, whose checklist already overrides `client_count =
+0` for a true single-node setup but said nothing about
+`ingress_client_count`. Fixed by changing `variables.tf`'s default to `0`
+(this cluster's own `terraform.tfvars` still explicitly sets `1`, so nothing
+about the already-verified deployment above changed — confirmed with
+`terraform plan` showing no diff after the default changed) and adding an
+explicit "set `ingress_client_count = 1` before provisioning" step to
+Option E's checklist and prose section only, mirroring how Get Started's
+`client_count = 0` override is already documented.
+
+**Not done** (left as documented, intentional non-goals per the Context
+section above): no NAT Gateway / true private subnet; the Nomad node name
+for the ingress client stays the generic sequential `nomad-client-3` rather
+than a distinct `nomad-ingress-client-1` (cosmetic only, doesn't affect the
+constraint mechanism); the non-mesh Countdash/HashiCups job specs in
+`consul-sd/`/`nomad-sd/` are untouched (Option E only, per the approved
+scope decision).
+
+## Addendum: simultaneous Countdash + HashiCups access (2026-07-22)
+
+Follow-on question after the above: the gateway originally had **one**
+listener (port 8447) with both `http-route-countdash.hcl` and
+`http-route-hashicups.hcl` matching the identical, unqualified
+`Path.Match = "prefix", Value = "/"` — so only whichever route was applied
+last actually won, and Countdash/HashiCups could never both be reached at
+the same time. The user wanted both open simultaneously in separate browser
+windows, and explicitly ruled out a `Hostnames`/hosts-file-based fix.
+
+**Fix: a second gateway listener on its own port**, rather than routing
+rules. `gateway-listener.hcl` now declares two `Listeners` on the same
+`api-gateway` config entry — `https-countdash` (port 8447) and
+`https-hashicups` (port 8448), both referencing the same
+`api-gateway-cert` inline-certificate (the cert's SAN is the ingress
+node's IP, which doesn't vary by port). Each `http-route`'s `Parents[].
+SectionName` now binds to its own listener instead of both sharing
+`"https"`. `api-gateway.nomad.hcl`'s `network` block gained a second
+`port` stanza (`https-hashicups`, static 8448), and
+`aws_security_group.ingress_sg` (`terraform/aws/network.tf`) now opens
+8448 as well as 8447 — still only on the dedicated ingress client, per the
+plan above. No app job spec changes needed, unlike a path-prefix approach
+would have required (Countdash and HashiCups both generate root-relative
+asset URLs with no base-path support wired into either job spec, so
+serving either one under a subpath like `/hashicups/` would likely have
+broken their static assets/API calls).
+
+**A pre-existing xDS bug (issue 6 in
+[api-gateway-envoy-bootstrap-troubleshooting.md](api-gateway-envoy-bootstrap-troubleshooting.md))
+recurred while verifying this**, and turned out to need a fuller fix than
+first understood: after writing the two-listener config (even from the
+server's own version-matched `consul` CLI this time), both ports returned
+`503`/`no_cluster` — Envoy's RDS routes referenced cluster names missing
+the `1a47f6e1~` hash prefix that CDS actually used. Simply overwriting the
+config entries again didn't fix it. What did: **deleting** (not
+overwriting) `http-route-countdash`, `http-route-hashicups`, and
+`api-gateway`, recreating them, **and** a full `nomad job stop -purge` +
+`nomad job run` of the gateway job (a task-level restart alone was not
+enough). See the troubleshooting page's issue 6 update for the fuller
+diagnosis — CLI version skew (the originally-suspected cause) is a
+trigger, not the sole cause; this looks like a genuine staleness/race in
+Consul API Gateway v2's own xDS controller.
+
+**Verified live:** both apps simultaneously reachable — 10/10
+`https://<ingress-ip>:8447/` returned Countdash's page, 10/10
+`https://<ingress-ip>:8448/` returned HashiCups', in the same test run.
+
+Files touched beyond the ones listed in this plan's Implementation section:
+`nomad-jobs/consul-mesh/gateway-listener.hcl`,
+`nomad-jobs/consul-mesh/http-route-countdash.hcl`,
+`nomad-jobs/consul-mesh/http-route-hashicups.hcl`,
+`nomad-jobs/consul-mesh/api-gateway.nomad.hcl`,
+`terraform/aws/network.tf`, `nomad-jobs/consul-mesh/README.md`,
+`DEPLOY_CLUSTER_GUIDE.md`.

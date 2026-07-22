@@ -10,7 +10,7 @@ each with their own job-specific README.
 
 The cluster must already be deployed with [Option E (service mesh)](../../DEPLOY_CLUSTER_GUIDE.md).
 
-Verify Consul Connect is active on both Nomad clients before continuing:
+Verify Consul service mesh (Consul Connect) is active on all Nomad clients before continuing:
 
 ```bash
 nomad node status -verbose \
@@ -19,26 +19,30 @@ nomad node status -verbose \
 # consul.connect = true  (must appear for every client node)
 ```
 
-Port 8447 must be open in the AWS security group. If you have not already
-applied the Terraform change:
+The API Gateway job always schedules onto a dedicated public ingress Nomad
+client — see [Viewing the app in your web
+browser](#viewing-the-app-in-your-web-browser) below and
+[`_context/wiki/dedicated-ingress-node-plan.md`](../../_context/wiki/dedicated-ingress-node-plan.md).
+Port 8447 is opened automatically on that node's security group by
+Terraform (`aws_security_group.ingress_sg`) — no manual step needed here.
+
+Confirm the ingress client exists and is tagged before continuing:
 
 ```bash
-# terraform/aws/terraform.tfvars already contains port 8447 — just apply:
-cd terraform/aws
-terraform plan
-terraform apply
+nomad node status -verbose \
+  $(nomad node status -short | grep ready | awk '{print $1}') \
+  | grep nodeRole
+# meta.nodeRole = ingress   (must appear for exactly one client node)
 ```
 
 > **Shortcut:** `ansible-playbook -i inventory.ini playbooks/consul_nomad_api_gateway.yaml`
 > automates steps 1, 2, 3, 4, 5, 6, and 8 below for Countdash in one run
 > (service-defaults, intentions, self-signed gateway cert + inline-certificate
 > config entry, gateway listener, the countdash http-route, the Nomad
-> variable, and the API Gateway job itself — it also opens port 8447 in the
-> security group if Terraform hasn't already). It does **not** deploy step 7
-> (the countdash-mesh-tproxy job itself), step 9 (HashiCups), or swap the
-> http-route — do those manually as shown below. Read on if you want to
-> understand or run each step individually (e.g. for HashiCups, or to
-> customize the gateway cert).
+> variable, and the API Gateway job itself). It does **not** deploy step 7
+> (the countdash-mesh-tproxy job itself) or step 9 (HashiCups) — do those
+> manually as shown below. Read on if you want to understand or run each
+> step individually (e.g. for HashiCups, or to customize the gateway cert).
 
 ## Deploy order
 
@@ -108,7 +112,9 @@ openssl req -x509 -nodes -newkey rsa:2048 \
   -out /tmp/gateway.crt \
   -days 365 \
   -subj "/CN=api-gateway.local" \
-  -addext "subjectAltName=IP:<public_ip_of_any_client_node>"
+  -addext "subjectAltName=IP:<public_ip_of_the_ingress_client>"
+# Look up the ingress client's IP: terraform output client_public_ips_by_node
+# (the nomad-ingress-client-N entry) — the gateway only ever runs there.
 
 consul config write - <<EOF
 Kind        = "inline-certificate"
@@ -130,8 +136,12 @@ consul config read -kind inline-certificate -name api-gateway-cert
 consul config write gateway-listener.hcl
 ```
 
-This registers the `api-gateway` config entry with an HTTPS listener on port
-8447 referencing the `api-gateway-cert` inline-certificate.
+This registers the `api-gateway` config entry with **two** HTTPS listeners,
+both referencing the `api-gateway-cert` inline-certificate: `https-countdash`
+on port `8447` and `https-hashicups` on port `8448`. Each app gets its own
+port instead of sharing one path-based route — see [Viewing the app in your
+web browser](#viewing-the-app-in-your-web-browser) below and
+[`_context/wiki/dedicated-ingress-node-plan.md`](../../_context/wiki/dedicated-ingress-node-plan.md).
 
 ### 5. Apply http-routes
 
@@ -140,11 +150,10 @@ consul config write http-route-countdash.hcl
 consul config write http-route-hashicups.hcl
 ```
 
-> **Note:** both routes use `"prefix": "/"`. If you deploy both countdash-mesh-tproxy
-> (or countdash-mesh-upstreams) and hashicups-mesh at the same time, the
-> gateway will route all traffic to whichever route was registered last. For
-> isolated testing, apply only one route at a time, or add a `Host` header
-> match to distinguish them.
+Each route binds to its own listener (`http-route-countdash.hcl` →
+`https-countdash`/8447, `http-route-hashicups.hcl` → `https-hashicups`/8448),
+so both can be applied — and both apps reached — at the same time; there's
+no "only one active route" caveat to work around anymore.
 
 ### 6. Store the Consul CA cert as a Nomad variable
 
@@ -231,16 +240,14 @@ nomad alloc logs -namespace ingress -task gateway \
   $(nomad job allocs -namespace ingress api-gateway | grep running | awk '{print $1}')
 ```
 
-Verify the gateway is reachable (replace `<IP>` with any client node's public IP):
+Verify the gateway is reachable (replace `<IP>` with the ingress client's
+public IP — see [Viewing the app in your web
+browser](#viewing-the-app-in-your-web-browser) for how to find it):
 
 ```bash
 curl -k https://<IP>:8447/
 # Should return the countdash-web UI (HTML response)
 ```
-
-If you'd rather open the app in a normal web browser instead of using
-`curl`, see [Viewing the app in your web browser](#viewing-the-app-in-your-web-browser)
-below — it walks through finding the right address step by step.
 
 ### 9. Deploy the HashiCups mesh job
 
@@ -249,80 +256,64 @@ nomad job run nomad-jobs/consul-mesh/hashicups-consul-service-mesh.nomad.hcl
 nomad job status hashicups-mesh
 ```
 
-Switch the active http-route to hashicups (if countdash route was applied):
+No route switching needed — `http-route-hashicups.hcl` (applied in Step 5)
+is already bound to its own listener (`https-hashicups`, port `8448`), so
+HashiCups comes up alongside Countdash rather than replacing it. Verify:
 
 ```bash
-consul config delete -kind http-route -name countdash
-consul config write http-route-hashicups.hcl
-```
-
-Verify:
-
-```bash
-curl -k https://<IP>:8447/
+curl -k https://<IP>:8448/
 # Should return the HashiCups nginx proxy (HTML response)
 ```
 
 ## Viewing the app in your web browser
 
-Countdash and HashiCups both go through the same front door: the API
-Gateway, on port `8447`. Only one app answers at a time — whichever one's
-route you applied most recently (Step 5's note, and Step 9's "switch"
-instructions) — so you don't need to figure out two different addresses,
-just one.
+Countdash and HashiCups go through the same API Gateway job, but each has
+its own port — `8447` for Countdash, `8448` for HashiCups — so both are
+reachable **at the same time**, in separate browser windows/tabs, with no
+route-switching step. (If you only deployed one of the two apps, only its
+port will actually answer — see Steps 7/7b and 9 above.)
 
-The one wrinkle: the API Gateway can end up running on **either** of the
-two cluster machines, and it may land on a different one each time it's
-redeployed. So there's no single fixed web address to bookmark — you have
-to look it up each time. Three short steps:
+The gateway job always runs on the same dedicated public "ingress" client
+(see
+[`_context/wiki/dedicated-ingress-node-plan.md`](../../_context/wiki/dedicated-ingress-node-plan.md))
+— there's no need to look up which machine it happened to land on. Two
+short steps:
 
-**Step A — Find which machine the gateway landed on.** Run this:
-
-```bash
-nomad alloc status -namespace ingress \
-  $(nomad job allocs -namespace ingress api-gateway | grep running | awk '{print $1}') \
-  | grep "Node Name"
-```
-
-You'll see one line back, something like:
-
-```text
-Node Name           = nomad-client-2
-```
-
-Note the name — `nomad-client-1` or `nomad-client-2`.
-
-**Step B — Look up that machine's public address.** Run this:
+**Step A — Look up the ingress client's public address.** Run this:
 
 ```bash
 cd terraform/aws
 terraform output client_public_ips_by_node
 ```
 
-You'll see both machines' addresses:
+You'll see every client's address, keyed by name:
 
 ```text
 {
-  "nomad-client-1" = "3.141.30.73"
-  "nomad-client-2" = "3.145.38.9"
+  "nomad-client-1"         = "3.141.30.73"
+  "nomad-client-2"         = "3.145.38.9"
+  "nomad-ingress-client-1" = "3.145.100.42"
 }
 ```
 
-Find the address next to the name you noted in Step A.
+Use the `nomad-ingress-client-N` entry — that's the one the gateway always
+runs on.
 
-**Step C — Open it in your browser.** Go to `https://<that address>:8447/`
-— for example, `https://3.145.38.9:8447/`.
+**Step B — Open each app in your browser**, using that same address with
+the app's own port:
+
+- Countdash: `https://<that address>:8447/` — for example,
+  `https://3.145.100.42:8447/`
+- HashiCups: `https://<that address>:8448/` — for example,
+  `https://3.145.100.42:8448/`
 
 Your browser will warn you that the connection isn't private or the
-certificate isn't trusted. That's expected, not a problem: this cluster is
-using a self-signed certificate for testing, not one issued by a
+certificate isn't trusted, for both. That's expected, not a problem: this
+cluster is using a self-signed certificate for testing, not one issued by a
 recognized certificate authority, so browsers can't automatically vouch
 for it. Click through the warning (in Chrome: "Advanced" → "Proceed to
 ... (unsafe)"; in Safari: "Show Details" → "visit this website") to
-continue.
-
-You should now see either the Countdash counter page or the HashiCups
-store front, whichever route is currently active.
+continue — once per port/tab.
 
 ## Verification checklist
 
@@ -334,7 +325,8 @@ store front, whichever route is currently active.
 - [ ] `nomad var get -namespace ingress nomad/jobs/api-gateway/gateway/setup` returns the CA cert
 - [ ] `nomad job status countdash-mesh-tproxy` — all allocs running with `connect-proxy-*` sidecars
 - [ ] `nomad job status -namespace ingress api-gateway` — allocation running
-- [ ] `curl -k https://<IP>:8447/` — HTTP 200 response
+- [ ] `curl -k https://<IP>:8447/` — HTTP 200 response (Countdash)
+- [ ] `curl -k https://<IP>:8448/` — HTTP 200 response (HashiCups, if deployed)
 - [ ] `consul intention check api-gateway countdash-web` — Allowed
 - [ ] `consul intention check api-gateway nginx` — Allowed
 - [ ] Spot-check a denied path: `consul intention check nginx database` — Denied
@@ -381,10 +373,10 @@ nomad var purge -namespace ingress nomad/jobs/api-gateway/gateway/setup
 | `countdash-transparent-proxy.nomad.hcl` | Nomad job | Countdash, mesh-enabled with Envoy Connect sidecars and bridge networking — **default**, uses `transparent_proxy` for the countdash-web → countdash-api hop |
 | `countdash-upstreams.nomad.hcl` | Nomad job | Countdash, same mesh but countdash-web → countdash-api uses an explicit `upstreams` block instead of `transparent_proxy` — alternative, no `consul-cni` dependency |
 | `hashicups-consul-service-mesh.nomad.hcl` | Nomad job | HashiCups (all six groups), mesh-enabled with Envoy Connect sidecars and bridge networking |
-| `gateway-listener.hcl` | `api-gateway` | HTTPS listener on port 8447 |
+| `gateway-listener.hcl` | `api-gateway` | Two HTTPS listeners: `https-countdash` on port 8447, `https-hashicups` on port 8448 — lets both apps be reachable simultaneously instead of sharing one path-based route |
 | `inline-certificate.hcl` | instructions only | How to generate and apply the TLS cert |
-| `http-route-countdash.hcl` | `http-route` | Routes `api-gateway` → `countdash-web` |
-| `http-route-hashicups.hcl` | `http-route` | Routes `api-gateway` → `nginx` |
-| `api-gateway.nomad.hcl` | Nomad job | Envoy API Gateway in the `ingress` namespace |
+| `http-route-countdash.hcl` | `http-route` | Routes the `https-countdash` listener (8447) → `countdash-web` |
+| `http-route-hashicups.hcl` | `http-route` | Routes the `https-hashicups` listener (8448) → `nginx` |
+| `api-gateway.nomad.hcl` | Nomad job | Envoy API Gateway in the `ingress` namespace — constrained to the dedicated public ingress client (`meta.nodeRole = "ingress"`), see [dedicated-ingress-node-plan.md](../../_context/wiki/dedicated-ingress-node-plan.md) |
 | `service-defaults/` | `service-defaults` | Protocol declarations for all mesh services |
 | `intentions/` | `service-intentions` | Allow-list per destination service |

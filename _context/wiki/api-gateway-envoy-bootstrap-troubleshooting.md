@@ -314,6 +314,29 @@ config content itself is wrong. This is a general risk for any long-lived
 session using local CLI tools against a persistent remote cluster, not
 specific to API Gateway.
 
+**Update — CLI version skew is a trigger, not the only cause.** Hit the
+identical `no_cluster` RDS/CDS-mismatch symptom again later (adding a
+second gateway listener for
+[dedicated-ingress-node-plan.md](dedicated-ingress-node-plan.md)'s
+simultaneous Countdash+HashiCups access), this time with local and server
+`consul` CLI versions already matching (`v2.0.2` on both). Writing the
+config from the server didn't fix it by itself. What did: **deleting**
+(not just overwriting) the `http-route` and `api-gateway` config entries,
+recreating them, and then a full `nomad job stop -purge` +
+`nomad job run` of the gateway job (not just `nomad job restart -task`,
+which also didn't fix it). This points to a genuine staleness/race in
+Consul API Gateway v2's own xDS controller — when its config entries are
+rewritten while a gateway allocation's Envoy already holds an open xDS
+stream, the controller can persistently (not just momentarily) serve a
+route referencing a stale, unprefixed cluster name instead of the
+freshly-generated hash-prefixed one. CLI version skew is *one* way to
+trigger a bad write that leads here, but matching versions doesn't
+guarantee immunity. If this recurs: delete+recreate the config entries
+*and* fully stop+purge+redeploy the gateway job (both together — neither
+alone was sufficient during this session), then check
+`/config_dump?resource=dynamic_route_configs` vs `/clusters` again to
+confirm the route and cluster names actually match before retesting.
+
 ## Useful commands referenced above
 
 ```bash

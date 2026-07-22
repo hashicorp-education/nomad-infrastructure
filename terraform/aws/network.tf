@@ -30,7 +30,7 @@ resource "aws_default_route_table" "nomad_consul_route_table" {
     gateway_id = aws_internet_gateway.nomad_consul_igw.id
   }
 
- tags = {
+  tags = {
     Name  = "${var.project_name}-public-rt"
     Owner = var.owner
   }
@@ -72,7 +72,7 @@ resource "aws_security_group" "nomad_consul_sg" {
     description = "SSH access"
   }
 
-# Consul HTTP API and UI (only reachable when consul_tls_enabled: false)
+  # Consul HTTP API and UI (only reachable when consul_tls_enabled: false)
   ingress {
     from_port   = 8500
     to_port     = 8500
@@ -81,7 +81,7 @@ resource "aws_security_group" "nomad_consul_sg" {
     description = "Consul UI and HTTP API (used only when TLS is disabled)"
   }
 
-# Consul HTTPS API and UI
+  # Consul HTTPS API and UI
   ingress {
     from_port   = 8443
     to_port     = 8443
@@ -91,7 +91,7 @@ resource "aws_security_group" "nomad_consul_sg" {
   }
 
 
-# Nomad HTTP API and UI
+  # Nomad HTTP API and UI
   ingress {
     from_port   = 4646
     to_port     = 4646
@@ -114,10 +114,10 @@ resource "aws_security_group" "nomad_consul_sg" {
 
   # Allow all internal traffic
   ingress {
-    from_port = 0
-    to_port   = 0
-    protocol  = "-1"
-    self      = true
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    self        = true
     description = "Allow all internal traffic"
   }
 
@@ -130,10 +130,56 @@ resource "aws_security_group" "nomad_consul_sg" {
     description = "Allow all outbound traffic"
   }
 
-  
+
 
   tags = {
     Name  = "${var.project_name}-sg"
+    Owner = var.owner
+  }
+}
+
+# Attached only to aws_instance.ingress_clients (see compute.tf), in addition
+# to nomad_consul_sg above. Opens app-facing ports that should be reachable
+# on exactly one designated public node, not every client — see
+# _context/wiki/dedicated-ingress-node-plan.md. Currently just the Consul API
+# Gateway's HTTPS listener; the non-mesh Countdash/HashiCups ports
+# (extra_ingress_ports above) stay on the shared SG since those scenarios
+# have no ingress-node concept and can still land on any client.
+resource "aws_security_group" "ingress_sg" {
+  name        = "${var.project_name}-ingress-sg"
+  description = "App-facing ports reachable only on the dedicated ingress client"
+  vpc_id      = aws_vpc.nomad_consul_vpc.id
+
+  ingress {
+    from_port   = 8447
+    to_port     = 8447
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Consul API Gateway - HTTPS ingress (Countdash listener)"
+  }
+
+  # Second gateway listener, on its own port, so Countdash (8447) and
+  # HashiCups (8448) are reachable simultaneously through the same gateway
+  # job instead of sharing one path-based route that only one app can win.
+  # See gateway-listener.hcl and _context/wiki/dedicated-ingress-node-plan.md.
+  ingress {
+    from_port   = 8448
+    to_port     = 8448
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Consul API Gateway - HTTPS ingress (HashiCups listener)"
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow all outbound traffic"
+  }
+
+  tags = {
+    Name  = "${var.project_name}-ingress-sg"
     Owner = var.owner
   }
 }
