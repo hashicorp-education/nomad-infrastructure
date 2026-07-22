@@ -1,4 +1,4 @@
-# Nomad Tutorials Analysis by Bob
+# Nomad Tutorials Analysis by IBM Bob
 
 > **Analyzed**: All tutorials listed at https://developer.hashicorp.com/nomad/tutorials  
 > **Methodology**: Live crawl of all collection and individual tutorial pages on developer.hashicorp.com.  
