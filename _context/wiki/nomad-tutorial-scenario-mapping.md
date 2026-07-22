@@ -37,7 +37,7 @@ and the [deploy-scenario skill](../../.github/skills/deploy-scenario/SKILL.md):
 
 | Tutorial | URL | Scenario | Notes |
 |---|---|---|---|
-| Deploy an app with Nomad service discovery | [service-discovery-app-deployment](https://developer.hashicorp.com/nomad/tutorials/service-discovery/service-discovery-app-deployment) | **B** for the native-SD half | **Partial gap** — the tutorial's second half ("enable load balancing with Nomad's service mesh") uses Nomad's own built-in service mesh (Nomad 1.8+, Consul-independent), which is a different feature from this repo's Consul Connect-based Option E and is not implemented here |
+| Deploy an app with Nomad service discovery | [service-discovery-app-deployment](https://developer.hashicorp.com/nomad/tutorials/service-discovery/service-discovery-app-deployment) | **B** | Direct match, full tutorial — Nomad has no built-in service mesh (only native service discovery); the tutorial's second half uses the `nomadService` template function to statically bind each upstream allocation to a specific downstream allocation, which Scenario B's plain Nomad-only cluster already supports with no additional infra |
 | Convert from Nomad to Consul service discovery | [service-discovery-consul-conversion](https://developer.hashicorp.com/nomad/tutorials/service-discovery/service-discovery-consul-conversion) | **C** | Needs both Nomad native SD and Consul SD side by side to compare — exactly what Scenario C provides |
 
 ## Use Nomad's Consul Integration
@@ -71,6 +71,5 @@ and the [deploy-scenario skill](../../.github/skills/deploy-scenario/SKILL.md):
 ## Known gaps surfaced by this mapping
 
 1. **GCP and Azure Cluster Setup tutorials** — not applicable; this repo is AWS-only (`terraform/aws/`). Out of scope unless a new cloud workspace is added.
-2. **Nomad's built-in (Consul-independent) service mesh** — used in the second half of the "Deploy an app with Nomad service discovery" tutorial. Distinct from Option E's Consul Connect-based mesh. Not implemented in this repo; would need its own phase if prioritized.
-3. **Multi-datacenter path-based ALB routing** — the Load Balancer Integrations tutorial's dc1/dc2 api/payments split and per-path listener rules are not reproduced by Phase 4's single target group. This repo has one datacenter per cluster; per-path routing is left as a follow-up Terraform exercise for users who want full tutorial parity.
-4. **Vault PKI-based mTLS certificate generation and rotation for Nomad** — the sole tutorial in the Vault Integration category is not reproduced. Phase 3 implements a different, broadly useful Vault integration (secrets via workload identity) instead of Vault-managed dynamic Nomad certs.
+2. **Multi-datacenter path-based ALB routing** — the Load Balancer Integrations tutorial's dc1/dc2 api/payments split and per-path listener rules are not reproduced by Phase 4's single target group. This repo has one datacenter per cluster; per-path routing is left as a follow-up Terraform exercise for users who want full tutorial parity.
+3. **Vault PKI-based mTLS certificate generation and rotation for Nomad** — the sole tutorial in the Vault Integration category is not reproduced. Phase 3 implements a different, broadly useful Vault integration (secrets via workload identity) instead of Vault-managed dynamic Nomad certs.
