@@ -28,6 +28,17 @@ nomad_server_bootstrap_expect: 3
 nomad_client_enabled: false
 nomad_client_servers: []
 
+# Nomad client meta stanza. Sourced from the per-host `nomad_node_role`
+# inventory var (set by terraform/aws/inventory.tpl) rather than passed
+# explicitly by any play, so every play that renders nomad.hcl picks it up
+# automatically — this repo has hit the "forgot to re-supply a var on
+# re-render" bug class before (see acl-architecture.md §10 and
+# _context/wiki/transparent-proxy-enablement-plan.md Bug 2). Currently used
+# to mark the dedicated public ingress client (nomad_node_role=ingress) so
+# nomad-jobs/consul-mesh/api-gateway.nomad.hcl can constrain on
+# ${meta.nodeRole} — see _context/wiki/dedicated-ingress-node-plan.md.
+nomad_client_meta: "{{ {'nodeRole': nomad_node_role} if nomad_node_role is defined else {} }}"
+
 # ACL configuration
 nomad_acl_enabled: false
 

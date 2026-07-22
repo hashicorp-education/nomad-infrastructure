@@ -170,11 +170,11 @@ to the detailed section in this guide.
 
 ---
 
-### Use case E: Consul + Nomad with service discovery, workload identity, and service mesh
+### Use case E: Consul + Nomad with service discovery, workload identity, service mesh, and API gateway
 
 1. **[Install prerequisites](#prerequisites)**
 2. **[Configure AWS credentials](#aws-credentials)**
-3. **[Provision infrastructure](#phase-1-provision-infrastructure-terraform)**
+3. **Set `ingress_client_count = 1` in `terraform.tfvars`, then [provision infrastructure](#phase-1-provision-infrastructure-terraform)** — this Option is the only one that needs the dedicated public ingress client; every other Option should leave it at `0`
 4. **[Install Ansible Galaxy roles](#phase-2-cluster-configuration-ansible)**
 5. **[Deploy the cluster](#option-e-consul--nomad-with-service-discovery-workload-identity-and-service-mesh----deploy_consul_nomad_meshyaml)**
 6. **[Export environment variables](#post-deployment-set-environment-variables)**
@@ -268,9 +268,10 @@ aws sts get-caller-identity
 | `subnet_cidr` | `10.0.1.0/24` | Public subnet CIDR |
 | `allowed_ssh_cidr` | `0.0.0.0/0` | CIDR allowed for SSH |
 | `server_count` | `3` | Number of server EC2 instances |
-| `client_count` | `2` | Number of client EC2 instances |
+| `client_count` | `2` | Number of (internal) client EC2 instances |
+| `ingress_client_count` | `0` | Number of dedicated public ingress client EC2 instances — runs the Consul API Gateway for Option E; the only client whose security group opens app-facing ports like `8447`. Terraform provisioning is shared across every Option and runs before you pick one, so this defaults to `0` and must be set to `1` explicitly in `terraform.tfvars` before provisioning if you intend to deploy Option E — see that section. See also [`_context/wiki/dedicated-ingress-node-plan.md`](_context/wiki/dedicated-ingress-node-plan.md). |
 | `server_instance_type` | `t3.medium` | Server EC2 instance type |
-| `client_instance_type` | `t3.medium` | Client EC2 instance type |
+| `client_instance_type` | `t3.medium` | Client EC2 instance type (used for both internal and ingress clients) |
 
 Always set `allowed_ssh_cidr` to your specific IP address or network range.
 
@@ -393,6 +394,7 @@ ami_architecture     = "x86_64"
 # Instance configuration
 server_count         = 3   # Use odd numbers: 3, 5, or 7
 client_count         = 2
+ingress_client_count = 0   # Leave at 0 unless you're deploying Option E — see that section
 server_instance_type = "t3.micro"
 client_instance_type = "t3.medium"
 ```
@@ -657,14 +659,25 @@ To remove what Ansible deployed, run the `teardown.yaml` playbook. Then run `uns
 
 ### Option E: Consul + Nomad with service discovery, workload identity, and service mesh — `deploy_consul_nomad_mesh.yaml`
 
-Extends Option D by enabling Consul Connect (service mesh) cluster-wide: Consul
-servers and clients are reconfigured with `connect.enabled = true` and a
-TLS-enabled gRPC port (`grpc_tls = 8503`); Nomad clients are reconfigured with
-`consul.grpc_address` / `consul.grpc_ca_file` so Nomad can bootstrap Envoy
-sidecars against Consul's TLS gRPC/xDS listener; a new Nomad `ingress`
-namespace and a Consul ACL binding rule for the built-in `api-gateway`
-templated policy are created (reusing the `nomad-workloads` JWT auth method
-from Option D — no new auth method).
+**Requires `ingress_client_count = 1` in `terraform.tfvars`**, set *before*
+running `terraform apply` in [Phase 1](#phase-1-provision-infrastructure-terraform) —
+this provisions the dedicated public client the API Gateway runs on. It
+defaults to `0` because Terraform provisioning is shared across every
+Option in this guide and runs before you pick one; every Option other than
+E should leave it at `0`. If you already provisioned without it, edit
+`terraform.tfvars` and re-run `terraform apply` — it's additive (adds one
+instance and one security group, doesn't touch existing servers/clients).
+
+Extends Option D by enabling Consul service mesh cluster-wide:
+
+- Consul servers and clients are reconfigured with `connect.enabled = true` and
+a TLS-enabled gRPC port (`grpc_tls = 8503`).
+- Nomad clients are reconfigured with `consul.grpc_address` /
+`consul.grpc_ca_file` so Nomad can bootstrap Envoy sidecars against Consul's TLS
+gRPC/xDS listener.
+- A new Nomad `ingress` namespace and a Consul ACL binding rule for the built-in
+`api-gateway` templated policy are created, reusing the `nomad-workloads` JWT
+auth method from Option D — no new auth method.
 
 Set Consul, Nomad, and CNI plugin versions in
 [`ansible/group_vars/all.yaml`](ansible/group_vars/all.yaml) before running:
@@ -694,6 +707,17 @@ nomad node status -verbose \
 # consul.connect = true   (must appear for every client node)
 ```
 
+Also confirm the dedicated public ingress client (provisioned by Terraform
+via `ingress_client_count`, see the variable table above) is tagged
+correctly — the API Gateway job below is constrained to schedule only there:
+
+```bash
+nomad node status -verbose \
+  $(nomad node status -short | grep ready | awk '{print $1}') \
+  | grep nodeRole
+# meta.nodeRole = ingress   (must appear for exactly one client node)
+```
+
 This playbook only configures the cluster infrastructure for service mesh. It
 does **not** deploy any mesh-enabled application jobs, Consul config entries
 (service-defaults, intentions, api-gateway listener), or the API Gateway
@@ -702,18 +726,36 @@ itself — those are an application-level concern applied separately. Follow
 full deploy order (service-defaults → intentions → TLS cert → gateway
 listener → http-route → mesh app job → API Gateway job), which deploys:
 
-- [`nomad-jobs/consul-mesh/countdash-consul-service-mesh.nomad.hcl`](nomad-jobs/consul-mesh/countdash-consul-service-mesh.nomad.hcl) and/or
-  [`nomad-jobs/consul-mesh/hashicups-consul-service-mesh.nomad.hcl`](nomad-jobs/consul-mesh/hashicups-consul-service-mesh.nomad.hcl) — the two demo apps, mesh-enabled with Envoy sidecars and explicit `upstreams`
-- [`nomad-jobs/consul-mesh/api-gateway.nomad.hcl`](nomad-jobs/consul-mesh/api-gateway.nomad.hcl) — an Envoy-based Consul API Gateway in the `ingress` namespace, terminating HTTPS on port 8447 and routing to whichever demo app's `http-route` is currently applied
-
-> **Note:** only one app's `http-route` can be active at a time — both
-> `http-route-countdash.hcl` and `http-route-hashicups.hcl` match on
-> `Path.Match = "prefix", Value = "/"`. To switch which app the gateway
-> serves, delete the active route and apply the other:
-> `consul config delete -kind http-route -name countdash && consul config write nomad-jobs/consul-mesh/http-route-hashicups.hcl`.
+- [`nomad-jobs/consul-mesh/countdash-transparent-proxy.nomad.hcl`](nomad-jobs/consul-mesh/countdash-transparent-proxy.nomad.hcl) and/or
+  [`nomad-jobs/consul-mesh/hashicups-consul-service-mesh.nomad.hcl`](nomad-jobs/consul-mesh/hashicups-consul-service-mesh.nomad.hcl) — the two demo apps, mesh-enabled with Envoy sidecars. Countdash defaults to Consul's `transparent_proxy` mode (see below); HashiCups still uses explicit `upstreams`.
+- [`nomad-jobs/consul-mesh/api-gateway.nomad.hcl`](nomad-jobs/consul-mesh/api-gateway.nomad.hcl) — an Envoy-based Consul API Gateway in the `ingress` namespace with two listeners, one per demo app: `https-countdash` on port 8447 and `https-hashicups` on port 8448, so both apps are reachable simultaneously rather than sharing one path-based route. Constrained to always schedule on the dedicated public ingress client (`meta.nodeRole = "ingress"`) — the only client whose security group opens these ports — rather than any client, so the gateway's public address is fixed and known ahead of time. See [`_context/wiki/dedicated-ingress-node-plan.md`](_context/wiki/dedicated-ingress-node-plan.md).
 
 If the process encounters issues, refer to the [Troubleshooting section](#troubleshooting) and
 [_context/wiki/api-gateway-envoy-bootstrap-troubleshooting.md](_context/wiki/api-gateway-envoy-bootstrap-troubleshooting.md).
+
+**Why transparent proxy is the default for Countdash (live-verified):**
+Consul's `transparent_proxy` mode needs no app-side rewiring — countdash-web
+calls Consul's real DNS name and Envoy intercepts the connection — instead
+of an explicit `upstreams` block bound to a fixed loopback port. See
+[_context/wiki/transparent-proxy-vs-upstreams.md](_context/wiki/transparent-proxy-vs-upstreams.md)
+for the tradeoffs. `consul_nomad_service_mesh.yaml` (run above) already
+installs the required `consul-cni` CNI plugin and applies the Nomad ACL
+policy the API Gateway job needs, so no separate manual steps remain.
+Full rollout, four real bugs found and fixed along the way (a Consul
+DNS-ACL-token regression, the wrong DNS name convention for
+transparent-proxy interception, and two stale-catalog-entry cleanups), and
+verification details in
+[_context/wiki/transparent-proxy-enablement-plan.md](_context/wiki/transparent-proxy-enablement-plan.md).
+
+**Alternative: explicit `upstreams` variant.**
+[`nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl`](nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl)
+uses an explicit `upstreams` block instead — no `consul-cni` dependency,
+every dependency spelled out in the job spec. Can run alongside the
+transparent-proxy job (independent job IDs):
+
+```bash
+nomad job run nomad-jobs/consul-mesh/countdash-upstreams.nomad.hcl
+```
 
 To remove what Ansible deployed, first stop the mesh app and gateway jobs (see
 the Clean up section of [nomad-jobs/consul-mesh/README.md](nomad-jobs/consul-mesh/README.md)),

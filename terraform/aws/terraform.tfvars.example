@@ -30,6 +30,13 @@ client_instance_type = "t3.medium"
 # server_count = 1
 # client_count = 0
 
+# For Option E (service mesh + API Gateway, deploy_consul_nomad_mesh.yaml)
+# only: adds one dedicated public client that always runs the API Gateway,
+# tagged nomad_node_role=ingress — the only client whose security group
+# opens app-facing ports like 8447. Leave at the default (0) for every other
+# Option. See _context/wiki/dedicated-ingress-node-plan.md.
+# ingress_client_count = 1
+
 # SSH Configuration
 ssh_user = "ubuntu"
 

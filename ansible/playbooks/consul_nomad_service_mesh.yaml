@@ -7,15 +7,37 @@
 # identity):
 #   - Play 1/2: re-renders consul.hcl on servers and clients with
 #     connect.enabled = true and a real grpc_tls port, then restarts Consul.
+#     Both plays also re-supply consul_acl_dns_token (read from
+#     tokens/consul-dns-secret-id.txt) — without it, restarting Consul here
+#     silently reverts DNS ACL access to the anonymous token (denied by
+#     consul_acl_deny_anonymous.yaml), which breaks any in-mesh service that
+#     resolves another service by Consul DNS name (e.g. transparent_proxy
+#     job specs) with a bare NXDOMAIN and no other error. Found live while
+#     verifying transparent proxy — see
+#     _context/wiki/transparent-proxy-enablement-plan.md.
+#     Play 2 also installs the consul-cni plugin on clients
+#     (consul_cni_enabled: true) — required for Nomad's transparent_proxy
+#     mode, the default/recommended mesh job spec for Countdash as of this
+#     playbook (nomad-jobs/consul-mesh/countdash-transparent-proxy.nomad.hcl;
+#     the explicit-upstreams variant, countdash-upstreams.nomad.hcl, remains
+#     available and doesn't need this plugin). If a new consul-cni binary is
+#     actually installed, a play-level handler restarts Nomad on that client
+#     automatically — Nomad only fingerprints /opt/cni/bin for new plugins
+#     at agent startup, so an already-running client would otherwise never
+#     see it. See _context/wiki/transparent-proxy-enablement-plan.md.
 #   - Play 3: re-renders nomad.hcl on Nomad CLIENTS with consul.grpc_address /
 #     consul.grpc_ca_file so Nomad can bootstrap Envoy sidecars against
 #     Consul's TLS-enabled gRPC/xDS listener. (Per Nomad's documented consul
 #     block parameters, grpc_address/grpc_ca_file are CLIENT-only settings —
 #     Envoy sidecars only ever run on Nomad clients, never servers.)
-#   - Play 4: creates the Nomad `ingress` namespace and the Consul ACL binding
+#   - Play 4: creates the Nomad `ingress` namespace, the Consul ACL binding
 #     rule that lets the API Gateway workload exchange its workload identity
 #     for the built-in api-gateway templated policy (reuses the existing
-#     nomad-workloads JWT auth method from Option D — no new auth method).
+#     nomad-workloads JWT auth method from Option D — no new auth method),
+#     and a Nomad ACL policy granting the gateway task read access to its
+#     own Nomad Variable (nomad/jobs/api-gateway/gateway/*) — without it the
+#     gateway job hangs at "Missing: nomad.var.block(...)" on every rebuild;
+#     see issue 5 in _context/wiki/api-gateway-envoy-bootstrap-troubleshooting.md.
 #
 # No existing job specs or playbooks are modified. Service intentions,
 # service-defaults config entries, and the API Gateway job itself are applied
@@ -53,6 +75,21 @@
     consul_connect_enabled: true
     consul_port_grpc_tls: 8503
 
+  pre_tasks:
+  - name: Read DNS token SecretID from local file
+    become: false
+    ansible.builtin.command: "cat {{ inventory_dir }}/tokens/consul-dns-secret-id.txt"
+    changed_when: false
+    delegate_to: localhost
+    run_once: true
+    register: consul_dns_out
+    no_log: true
+
+  - name: Set DNS token fact on all servers
+    ansible.builtin.set_fact:
+      consul_acl_dns_token: "{{ consul_dns_out.stdout | trim }}"
+    no_log: true
+
   roles:
   - role: consul
 
@@ -82,8 +119,42 @@
     consul_connect_enabled: true
     consul_port_grpc_tls: 8503
 
+  pre_tasks:
+  - name: Read DNS token SecretID from local file
+    become: false
+    ansible.builtin.command: "cat {{ inventory_dir }}/tokens/consul-dns-secret-id.txt"
+    changed_when: false
+    delegate_to: localhost
+    run_once: true
+    register: consul_dns_out
+    no_log: true
+
+  - name: Set DNS token fact on all clients
+    ansible.builtin.set_fact:
+      consul_acl_dns_token: "{{ consul_dns_out.stdout | trim }}"
+    no_log: true
+
   roles:
   - role: consul
+  - role: cni
+    vars:
+      # Installs the separate consul-cni plugin (not part of the standard
+      # CNI bundle already installed by nomad_clients.yaml) required for
+      # Nomad's transparent_proxy mode. Idempotent even if this role already
+      # ran during base client setup, since it checks for the consul-cni
+      # binary specifically, independent of the standard-plugins check.
+      consul_cni_enabled: true
+
+  handlers:
+  # Notified by ansible/roles/cni/tasks/install_consul_cni.yaml only when a
+  # new consul-cni binary was actually written. Defined here (not in the
+  # cni role itself) since only this play's use of the role needs it —
+  # nomad_clients.yaml also uses the cni role but never sets
+  # consul_cni_enabled, so it never notifies this handler.
+  - name: Restart nomad on clients (consul-cni installed)
+    ansible.builtin.systemd:
+      name: nomad
+      state: restarted
 
 # ── Play 3: Add grpc_address/grpc_ca_file to Nomad client configs ──────────────
 
@@ -163,6 +234,35 @@
       nomad namespace apply
       -description "Consul API Gateway (Option E service mesh)"
       ingress
+    environment:
+      NOMAD_TOKEN: "{{ nomad_bootstrap_secret_id }}"
+      NOMAD_ADDR: "https://127.0.0.1:4646"
+      NOMAD_CACERT: "/etc/nomad.d/.tls/ca.crt"
+    changed_when: true
+
+  # Without this, the API Gateway job's `gateway` task hangs forever with
+  # "Missing: nomad.var.block(nomad/jobs/api-gateway/gateway/setup@ingress.global)"
+  # — Nomad's implicit per-task variable access only covers the exact path
+  # nomad/jobs/<job>/<group>/<task>, which doesn't match here (task name is
+  # "gateway", path's last segment is "setup"). `nomad acl policy apply` is
+  # create-or-update, so this is idempotent. See issue 5 in
+  # _context/wiki/api-gateway-envoy-bootstrap-troubleshooting.md.
+  - name: Apply Nomad ACL policy for API Gateway Nomad Variable access
+    ansible.builtin.shell: |
+      set -euo pipefail
+      nomad acl policy apply \
+        -namespace ingress -job api-gateway -group gateway -task gateway \
+        api-gateway-variables - <<'EOF'
+      namespace "ingress" {
+        variables {
+          path "nomad/jobs/api-gateway/gateway/*" {
+            capabilities = ["read"]
+          }
+        }
+      }
+      EOF
+    args:
+      executable: /bin/bash
     environment:
       NOMAD_TOKEN: "{{ nomad_bootstrap_secret_id }}"
       NOMAD_ADDR: "https://127.0.0.1:4646"

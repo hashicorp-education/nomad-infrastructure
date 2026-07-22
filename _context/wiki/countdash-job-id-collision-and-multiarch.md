@@ -4,7 +4,7 @@ Follow-on to [countdash-multipass-multiarch-fix.md](countdash-multipass-multiarc
 which fixed `countdash-consul-service-discovery.nomad.hcl` only. Applying the
 same fixes to the other two Countdash job specs
 (`countdash-nomad-service-discovery.nomad.hcl`,
-`countdash-consul-service-mesh.nomad.hcl`) surfaced a third, unrelated bug:
+`countdash-upstreams.nomad.hcl`) surfaced a third, unrelated bug:
 two of the three specs silently shared a Nomad job ID.
 
 ## 1. Same fixes applied to the other two specs
@@ -24,7 +24,7 @@ in the linked page:
 **Verified live**: deployed to the real cluster, `Status = successful`, both
 groups `Healthy = 1`.
 
-**`countdash-consul-service-mesh.nomad.hcl`** only needed the image fix — its
+**`countdash-upstreams.nomad.hcl`** only needed the image fix — its
 `service` blocks use bridge networking + Consul Connect sidecars with no
 explicit `address` field at all, so the AWS-attribute bug doesn't apply
 there. Added the same two version variables and interpolated
@@ -67,7 +67,7 @@ Countdash variant its own job ID so this can't recur.
 |------|-----------|------------|
 | `countdash-consul-service-discovery.nomad.hcl` | `countdash` | `countdash-consul-sd` |
 | `countdash-nomad-service-discovery.nomad.hcl` | `countdash` | `countdash-nomad-sd` |
-| `countdash-consul-service-mesh.nomad.hcl` | `countdash-mesh` | *(unchanged — already unique)* |
+| `countdash-upstreams.nomad.hcl` | `countdash-mesh` | *(unchanged — already unique)* |
 
 Also updated `README.md`'s `job` block doc example (was illustrating with
 the now-stale `job "countdash" { ... }` snippet) to use
@@ -98,5 +98,5 @@ grep -rn '^job "' nomad-jobs/consul-sd/*.hcl nomad-jobs/nomad-sd/*.hcl nomad-job
   the original fix (Consul-DNS variant only) that this page extends to the
   other two specs.
 - `nomad-jobs/consul-mesh/README.md` — deploy order required before
-  `countdash-consul-service-mesh.nomad.hcl` can be verified live (not done
+  `countdash-upstreams.nomad.hcl` can be verified live (not done
   this session).

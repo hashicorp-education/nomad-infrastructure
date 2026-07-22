@@ -17,7 +17,7 @@ variable "countdash-web-version" {
   default = "v3"
 }
 
-job "countdash-mesh" {
+job "countdash-mesh-upstreams" {
 
   group "countdash-api" {
     count = 1

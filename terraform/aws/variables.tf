@@ -85,6 +85,12 @@ variable "client_count" {
   default     = 2
 }
 
+variable "ingress_client_count" {
+  description = "Number of dedicated public ingress Nomad client instances (run the Consul API Gateway for Option E; tagged nomad_node_role=ingress in the generated inventory). Defaults to 0 — Terraform provisioning is shared across every deployment Option in DEPLOY_CLUSTER_GUIDE.md and runs before an Option is chosen, so only set this to 1+ in terraform.tfvars when you specifically intend to run Option E (service mesh); leaving it at 0 keeps Get Started/Option A/B/C/F's footprint unchanged. See _context/wiki/dedicated-ingress-node-plan.md."
+  type        = number
+  default     = 0
+}
+
 variable "server_instance_type" {
   description = "EC2 instance type for servers"
   type        = string

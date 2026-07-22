@@ -47,10 +47,6 @@
     consul_dns_secret_id_file: "{{ inventory_dir }}/tokens/consul-dns-secret-id.txt"
     consul_bootstrap_secret_id_file: "{{ inventory_dir }}/tokens/consul-bootstrap-secret-id.txt"
     consul_datacenter: "dc1"
-    # Per-node agent token files — one per client, named after the node.
-    # Sentinel: the first client's file. If it exists, skip creation for all.
-    consul_client_agent_sentinel_file: >-
-      {{ inventory_dir }}/tokens/consul-client-agent-{{ groups['clients'][0] }}-secret-id.txt
 
   tasks:
 
@@ -64,13 +60,32 @@
     run_once: true
     register: consul_dns_token_file_stat
 
-  - name: Check if client agent token sentinel file already exists locally
+  # Per-node agent token files — one per client, named after the node. Checked
+  # individually (not via a single sentinel file) so that adding a new client
+  # to an already-bootstrapped cluster (e.g. terraform apply with a higher
+  # client/ingress_client_count) only creates a token for the new node,
+  # rather than skipping token creation entirely because an unrelated
+  # existing client's file already exists — hit live when adding the
+  # dedicated ingress client, see
+  # _context/wiki/dedicated-ingress-node-plan.md.
+  - name: Check if each client's node-identity agent token file already exists locally
     become: false
     ansible.builtin.stat:
-      path: "{{ consul_client_agent_sentinel_file }}"
+      path: "{{ inventory_dir }}/tokens/consul-client-agent-{{ item }}-secret-id.txt"
     delegate_to: localhost
     run_once: true
-    register: consul_client_agent_token_file_stat
+    loop: "{{ groups['clients'] }}"
+    loop_control:
+      label: "{{ item }}"
+    register: consul_client_agent_token_file_stats
+
+  - name: Compute which clients still need a node-identity agent token
+    ansible.builtin.set_fact:
+      consul_clients_needing_agent_tokens: >-
+        {{ consul_client_agent_token_file_stats.results
+           | rejectattr('stat.exists')
+           | map(attribute='item')
+           | list }}
 
   # ── Read bootstrap token once (used by both creation blocks below) ───────────
 
@@ -82,7 +97,7 @@
     run_once: true
     register: consul_bootstrap_pre_read
     no_log: true
-    when: not consul_dns_token_file_stat.stat.exists or not consul_client_agent_token_file_stat.stat.exists
+    when: not consul_dns_token_file_stat.stat.exists or (consul_clients_needing_agent_tokens | length > 0)
 
   - name: Set bootstrap SecretID fact
     ansible.builtin.set_fact:
@@ -179,8 +194,8 @@
 
   # ── Client agent token creation block (node identity, one token per client) ────
 
-  - name: Create node-identity agent token for each client
-    when: not consul_client_agent_token_file_stat.stat.exists
+  - name: Create node-identity agent token for each client that doesn't have one yet
+    when: consul_clients_needing_agent_tokens | length > 0
     run_once: true
     # Loop runs on servers[0] because this play targets servers[0].
     # Each iteration creates one scoped token for the named client node.
@@ -194,8 +209,8 @@
         mode: "0700"
       delegate_to: localhost
 
-    - name: Create node-identity token for each Consul client
-      loop: "{{ groups['clients'] }}"
+    - name: Create node-identity token for each Consul client missing one
+      loop: "{{ consul_clients_needing_agent_tokens }}"
       loop_control:
         label: "{{ item }}"
       ansible.builtin.command: >-

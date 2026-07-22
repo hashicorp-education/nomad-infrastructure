@@ -11,7 +11,7 @@ different service-discovery mechanisms against the same app:
 |------|----------------------------|
 | `countdash-consul-service-discovery.nomad.hcl` (this directory) | Consul (DNS lookup via dnsmasq) |
 | [`../nomad-sd/countdash-nomad-service-discovery.nomad.hcl`](../nomad-sd/countdash-nomad-service-discovery.nomad.hcl) | Nomad (built-in service catalog + template) — see [`../nomad-sd/README.md`](../nomad-sd/README.md) |
-| [`../consul-mesh/countdash-consul-service-mesh.nomad.hcl`](../consul-mesh/countdash-consul-service-mesh.nomad.hcl) | Consul service mesh (Envoy Connect sidecars, bridge networking) — see [`../consul-mesh/README.md`](../consul-mesh/README.md) |
+| [`../consul-mesh/countdash-upstreams.nomad.hcl`](../consul-mesh/countdash-upstreams.nomad.hcl) | Consul service mesh (Envoy Connect sidecars, bridge networking) — see [`../consul-mesh/README.md`](../consul-mesh/README.md) |
 
 The mesh variant is deployed and verified through the Consul API Gateway, not
 directly on a public port — see [`nomad-jobs/consul-mesh/README.md`](../consul-mesh/README.md)
