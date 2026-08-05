@@ -1,0 +1,7 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Consul role vars
+# Variables in this file take precedence over defaults/main.yaml.
+# Only place values here that must NOT be overridden by the operator.
+# For tunable defaults, use defaults/main.yaml instead.

@@ -1,0 +1,33 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# CNI plugins role default variables
+
+cni_plugins_path: "/opt/cni/bin"
+cni_plugins_config_path: "/opt/cni/config"
+cni_plugins_version: "1.9.1"
+
+cni_plugins_arch_map:
+  x86_64: "amd64"
+  aarch64: "arm64"
+
+cni_plugins_url: "https://github.com/containernetworking/plugins/releases/download/v{{ cni_plugins_version }}/cni-plugins-{{ ansible_facts['system'] | lower }}-{{ cni_plugins_arch_map[ansible_facts['architecture'] | default('amd64')] }}-v{{ cni_plugins_version }}.tgz"
+
+# consul-cni is a separate, single-binary CNI plugin (not part of the
+# containernetworking/plugins bundle above) required only for Nomad's
+# Consul Connect *transparent proxy* mode — not for plain bridge-mode
+# service mesh using explicit `upstreams` blocks, which only needs the
+# standard plugins already installed unconditionally by this role.
+# Disabled by default; the service-mesh scenario turns it on explicitly.
+# See _context/wiki/transparent-proxy-enablement-plan.md.
+consul_cni_enabled: false
+consul_cni_version: "1.6.2"
+consul_cni_url: "https://releases.hashicorp.com/consul-cni/{{ consul_cni_version }}/consul-cni_{{ consul_cni_version }}_{{ ansible_facts['system'] | lower }}_{{ cni_plugins_arch_map[ansible_facts['architecture'] | default('amd64')] }}.zip"
+
+# CNI configuration files that should be created on the host. This should be a
+# list of dictionaries with the following keys:
+# - name: The name of the CNI configuration file (e.g., "10-mynet.conf")
+# - content: The content of the CNI configuration file in JSON format
+cni_configs: []
+
+

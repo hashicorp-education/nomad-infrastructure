@@ -1,0 +1,62 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# TLS role main tasks
+
+- name: Generate CA certificate
+  when: tls_ca_generate is true
+  run_once: true
+  delegate_to: 127.0.0.1
+  become: false
+  block:
+    - name: Ensure TLS directory exists
+      ansible.builtin.file:
+        path: "{{ tls_path }}"
+        state: directory
+        mode: "0755"
+
+    - name: Check if CA private key exists
+      ansible.builtin.stat:
+        path: "{{ tls_path }}/{{ tls_ca_key_filename }}"
+      register: tls_ca_key_exists
+
+    - name: Create CA private key
+      community.crypto.openssl_privatekey:
+        path: "{{ tls_path }}/{{ tls_ca_key_filename }}"
+        mode: "0600"
+      when: not tls_ca_key_exists.stat.exists
+
+    - name: Check if CA certificate exists
+      ansible.builtin.stat:
+        path: "{{ tls_path }}/{{ tls_ca_pem_filename }}"
+      register: tls_ca_pem_exists
+
+    - name: Create CA CSR
+      community.crypto.openssl_csr_pipe:
+        privatekey_path: "{{ tls_path }}/{{ tls_ca_key_filename }}"
+        common_name: "Nomad CA"
+        use_common_name_for_san: false
+        basic_constraints:
+          - 'CA:TRUE'
+        basic_constraints_critical: true
+        key_usage:
+          - keyCertSign
+        key_usage_critical: true
+      register: tls_ca_csr
+      when: not tls_ca_pem_exists.stat.exists
+
+    - name: Create self-signed CA certificate
+      community.crypto.x509_certificate:
+        path: "{{ tls_path }}/{{ tls_ca_pem_filename }}"
+        csr_content: "{{ tls_ca_csr.csr }}"
+        privatekey_path: "{{ tls_path }}/{{ tls_ca_key_filename }}"
+        provider: selfsigned
+        mode: "0644"
+      when: not tls_ca_pem_exists.stat.exists
+
+- name: Generate self-signed certificates
+  ansible.builtin.include_tasks: cert_generate.yaml
+  loop: "{{ tls_self_signed_generate }}"
+  when: tls_self_signed_generate | length > 0
+
+

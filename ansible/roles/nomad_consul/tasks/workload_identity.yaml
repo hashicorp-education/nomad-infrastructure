@@ -1,0 +1,174 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# nomad_consul role tasks — workload identity
+#
+# Configures the Consul JWT auth method and binding rules that let Nomad
+# workload identity JWTs exchange for scoped Consul ACL tokens at runtime.
+# This enables Nomad services and tasks to interact with Consul without static
+# tokens injected at job submission time.
+#
+# Prerequisite: service_discovery.yaml must have run first so that the
+# nomad-server-policy and nomad-client-policy already exist in Consul.
+#
+# Idempotency is guarded by nomad_consul_wi_bootstrapped_file on the first server.
+
+# ── Idempotency check ──────────────────────────────────────────────────────────
+
+- name: Check if Consul-Nomad workload identity is already bootstrapped
+  become: true
+  ansible.builtin.stat:
+    path: "{{ nomad_consul_wi_bootstrapped_file }}"
+  register: nomad_consul_wi_bootstrapped_stat
+  delegate_to: "{{ groups['servers'] | first }}"
+  run_once: true
+
+# ── Bootstrap block ────────────────────────────────────────────────────────────
+
+- name: Bootstrap Consul-Nomad workload identity
+  when: not nomad_consul_wi_bootstrapped_stat.stat.exists
+  run_once: true
+  delegate_to: "{{ groups['servers'] | first }}"
+  block:
+
+    # -- Read bootstrap token from the control machine -------------------------
+
+    - name: Read Consul bootstrap SecretID from local file
+      become: false
+      ansible.builtin.command: "cat {{ nomad_consul_bootstrap_secret_id_file }}"
+      changed_when: false
+      delegate_to: localhost
+      register: nomad_consul_bootstrap_secret_id_out
+
+    - name: Set Consul bootstrap SecretID fact
+      ansible.builtin.set_fact:
+        nomad_consul_bootstrap_secret_id: "{{ nomad_consul_bootstrap_secret_id_out.stdout | trim }}"
+
+    # -- Stage policy and auth-method files on the server ---------------------
+
+    - name: Create staging directory for ACL files
+      become: true
+      ansible.builtin.file:
+        path: "{{ nomad_consul_staging_dir }}"
+        state: directory
+        mode: "0700"
+        owner: root
+        group: root
+
+    - name: Copy Nomad tasks Consul policy file to server
+      become: true
+      ansible.builtin.copy:
+        src: "consul/nomad-tasks-policy.hcl"
+        dest: "{{ nomad_consul_staging_dir }}/nomad-tasks-policy.hcl"
+        mode: "0600"
+
+    - name: Template Nomad workloads auth method JSON to server
+      become: true
+      ansible.builtin.template:
+        src: nomad-workloads-auth-method.json.j2
+        dest: "{{ nomad_consul_staging_dir }}/nomad-workloads-auth-method.json"
+        mode: "0600"
+
+    - name: Slurp rendered nomad-workloads-auth-method.json for debug
+      become: true
+      ansible.builtin.slurp:
+        src: "{{ nomad_consul_staging_dir }}/nomad-workloads-auth-method.json"
+      register: _auth_method_content
+      changed_when: false
+      tags:
+        - debug_config
+
+    - name: Print rendered nomad-workloads-auth-method.json
+      ansible.builtin.debug:
+        msg: "{{ _auth_method_content.content | b64decode }}"
+        verbosity: 1
+      tags:
+        - debug_config
+
+    # -- Create Consul ACL policy for task workload identities ----------------
+
+    - name: Create Consul ACL policy for Nomad task workload identities
+      become: true
+      ansible.builtin.command: >-
+        {{ nomad_consul_bin_path }} acl policy create
+        -name "{{ nomad_consul_tasks_policy_name }}"
+        -description "{{ nomad_consul_tasks_policy_description }}"
+        -rules "@{{ nomad_consul_staging_dir }}/nomad-tasks-policy.hcl"
+      environment:
+        CONSUL_HTTP_TOKEN: "{{ nomad_consul_bootstrap_secret_id }}"
+        CONSUL_HTTP_ADDR: "{{ nomad_consul_http_addr }}"
+      changed_when: true
+
+    # -- Create JWT auth method ------------------------------------------------
+
+    - name: Create Consul JWT auth method for Nomad workload identities
+      become: true
+      ansible.builtin.command: >-
+        {{ nomad_consul_bin_path }} acl auth-method create
+        -name "{{ nomad_consul_auth_method_name }}"
+        -type "jwt"
+        -description "{{ nomad_consul_auth_method_description }}"
+        -config "@{{ nomad_consul_staging_dir }}/nomad-workloads-auth-method.json"
+      environment:
+        CONSUL_HTTP_TOKEN: "{{ nomad_consul_bootstrap_secret_id }}"
+        CONSUL_HTTP_ADDR: "{{ nomad_consul_http_addr }}"
+      changed_when: true
+
+    # -- Create Consul ACL binding rules --------------------------------------
+    # Rule 1: service workload identities -> service identity (bind-type service)
+    # Rule 2: task workload identities    -> ACL role       (bind-type role)
+
+    - name: Create Consul binding rule for Nomad service workload identities
+      become: true
+      ansible.builtin.shell: |
+        {{ nomad_consul_bin_path }} acl binding-rule create \
+          -method '{{ nomad_consul_auth_method_name }}' \
+          -description '{{ nomad_consul_service_binding_rule_description }}' \
+          -bind-type 'service' \
+          -bind-name '${value.nomad_service}' \
+          -selector '"nomad_service" in value'
+      environment:
+        CONSUL_HTTP_TOKEN: "{{ nomad_consul_bootstrap_secret_id }}"
+        CONSUL_HTTP_ADDR: "{{ nomad_consul_http_addr }}"
+      changed_when: true
+
+    - name: Create Consul ACL role for Nomad tasks in the default namespace
+      become: true
+      ansible.builtin.command: >-
+        {{ nomad_consul_bin_path }} acl role create
+        -name "{{ nomad_consul_tasks_role_name }}"
+        -description "{{ nomad_consul_tasks_role_description }}"
+        -policy-name "{{ nomad_consul_tasks_policy_name }}"
+      environment:
+        CONSUL_HTTP_TOKEN: "{{ nomad_consul_bootstrap_secret_id }}"
+        CONSUL_HTTP_ADDR: "{{ nomad_consul_http_addr }}"
+      changed_when: true
+
+    - name: Create Consul binding rule for Nomad task workload identities
+      become: true
+      ansible.builtin.shell: |
+        {{ nomad_consul_bin_path }} acl binding-rule create \
+          -method '{{ nomad_consul_auth_method_name }}' \
+          -description '{{ nomad_consul_tasks_binding_rule_description }}' \
+          -bind-type 'role' \
+          -bind-name 'nomad-tasks-${value.nomad_namespace}' \
+          -selector '"nomad_service" not in value'
+      environment:
+        CONSUL_HTTP_TOKEN: "{{ nomad_consul_bootstrap_secret_id }}"
+        CONSUL_HTTP_ADDR: "{{ nomad_consul_http_addr }}"
+      changed_when: true
+
+    # -- Cleanup and sentinel --------------------------------------------------
+
+    - name: Remove ACL staging directory from server
+      become: true
+      ansible.builtin.file:
+        path: "{{ nomad_consul_staging_dir }}"
+        state: absent
+
+    - name: Write Consul-Nomad workload identity bootstrapped sentinel file
+      become: true
+      ansible.builtin.copy:
+        content: "Consul-Nomad workload identity bootstrapped on {{ now(fmt='%Y-%m-%d %H:%M:%S %Z') }}.\n"
+        dest: "{{ nomad_consul_wi_bootstrapped_file }}"
+        mode: "0644"

@@ -1,0 +1,24 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Write content to file
+
+- name: Ensure destination directory exists
+  become: true
+  ansible.builtin.file:
+    path: "{{ item.dst | dirname }}"
+    state: directory
+    owner: "{{ item['owner'] | default('root') }}"
+    group: "{{ item['group'] | default('root') }}"
+    mode: "{{ item['dir_mode'] | default('0755') }}"
+
+- name: Write content to file
+  become: true
+  ansible.builtin.copy:
+    content: "{{ item['content'] }}"
+    dest: "{{ item['dst'] }}"
+    owner: "{{ item['owner'] | default('root') }}"
+    group: "{{ item['group'] | default('root') }}"
+    mode: "{{ item['mode'] | default('0644') }}"
+
+

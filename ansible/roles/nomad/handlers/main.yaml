@@ -1,0 +1,24 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Nomad role handlers
+
+- name: Reload systemd
+  become: true
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Enable nomad
+  become: true
+  ansible.builtin.systemd_service:
+    name: "{{ nomad_service_name }}"
+    enabled: true
+    masked: false
+
+- name: Restart nomad
+  become: true
+  ansible.builtin.systemd_service:
+    name: "{{ nomad_service_name }}"
+    state: restarted
+
+

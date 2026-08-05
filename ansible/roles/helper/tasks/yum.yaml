@@ -1,0 +1,14 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# YUM package installation tasks
+
+- name: Install YUM packages
+  become: true
+  ansible.builtin.yum:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ helper_yum_packages }}"
+  when: helper_yum_packages | length > 0
+
+

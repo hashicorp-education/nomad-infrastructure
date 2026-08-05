@@ -1,0 +1,53 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook: deploy_consul.yaml
+#
+# Deploys a complete Consul cluster:
+#   1. Configures all hosts
+#   2. Tests Ansible connectivity
+#   3. Deploys Consul servers and clients
+#   4. Bootstraps Consul ACL
+#   5. Configures dnsmasq for Consul DNS forwarding
+#
+# Usage:
+#   ansible-playbook -i inventory.ini deploy_consul.yaml
+#
+# Set environment variables after deployment:
+#   source ./set-cluster-env.sh
+#   source ./unset-cluster-env.sh   # to unset
+
+# ── Configure all hosts and test connectivity ────────────────────────────────
+
+- name: Import common setup
+  ansible.builtin.import_playbook: playbooks/common_setup.yaml
+
+# ── Deploy Consul ─────────────────────────────────────────────────────────────
+
+- name: Import Consul server playbook
+  ansible.builtin.import_playbook: playbooks/consul_servers.yaml
+
+- name: Import Consul client playbook
+  ansible.builtin.import_playbook: playbooks/consul_clients.yaml
+
+- name: Bootstrap Consul ACL
+  ansible.builtin.import_playbook: playbooks/consul_acl_bootstrap.yaml
+
+- name: Issue Consul client ACL tokens and reconfigure clients with ACL enabled
+  ansible.builtin.import_playbook: playbooks/consul_dns_token.yaml
+
+- name: Configure dnsmasq for Consul DNS forwarding
+  ansible.builtin.import_playbook: playbooks/dnsmasq.yaml
+
+- name: Add deny all policy to Consul anonymous token
+  ansible.builtin.import_playbook: playbooks/consul_acl_deny_anonymous.yaml
+
+# ── Cluster status summary ────────────────────────────────────────────────────
+
+- name: Import cluster summary
+  ansible.builtin.import_playbook: playbooks/cluster_summary.yaml
+  vars:
+    summary_title: "Consul Cluster Configuration Complete!"
+    summary_show_consul_tokens: true
+    summary_show_consul_env: true
+    summary_show_consul_ui: true

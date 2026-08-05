@@ -1,0 +1,44 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook: deploy_nomad.yaml
+#
+# Deploys a standalone Nomad cluster (no Consul integration):
+#   1. Configures all hosts
+#   2. Tests Ansible connectivity
+#   3. Deploys Nomad servers and clients
+#   4. Bootstraps Nomad ACL
+#
+# Usage:
+#   ansible-playbook -i inventory.ini deploy_nomad.yaml
+#
+# Set environment variables after deployment:
+#   source ./set-cluster-env.sh
+#   source ./unset-cluster-env.sh   # to unset
+
+# ── Configure all hosts and test connectivity ────────────────────────────────
+
+- name: Import common setup
+  ansible.builtin.import_playbook: playbooks/common_setup.yaml
+
+# ── Deploy Nomad ──────────────────────────────────────────────────────────────
+
+- name: Import Nomad server playbook
+  ansible.builtin.import_playbook: playbooks/nomad_servers.yaml
+
+- name: Import Nomad client playbook
+  ansible.builtin.import_playbook: playbooks/nomad_clients.yaml
+
+- name: Bootstrap Nomad ACL
+  ansible.builtin.import_playbook: playbooks/nomad_acl_bootstrap.yaml
+
+# ── Cluster status summary ────────────────────────────────────────────────────
+
+- name: Import cluster summary
+  ansible.builtin.import_playbook: playbooks/cluster_summary.yaml
+  vars:
+    summary_title: "Nomad Cluster Configuration Complete!"
+    summary_show_nomad_tokens: true
+    summary_show_nomad_env: true
+    summary_show_nomad_ui: true
+    

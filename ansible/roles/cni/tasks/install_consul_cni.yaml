@@ -1,0 +1,32 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# consul-cni plugin installation tasks (transparent proxy support only)
+
+- name: Download consul-cni plugin
+  ansible.builtin.get_url:
+    url: "{{ consul_cni_url }}"
+    dest: "/tmp/consul-cni.zip"
+    mode: "0600"
+  register: consul_cni_file
+
+- name: Extract consul-cni plugin
+  become: true
+  ansible.builtin.unarchive:
+    remote_src: true
+    src: "{{ consul_cni_file.dest }}"
+    dest: "{{ cni_plugins_path }}"
+    mode: "0755"
+  # Nomad only fingerprints /opt/cni/bin for new plugins at agent startup,
+  # not on a timer — an already-running Nomad client won't see this binary
+  # (and won't schedule transparent_proxy jobs) until restarted. Only fires
+  # when a new binary is actually written here, so idempotent re-runs are a
+  # no-op. The handler is defined at the play level (not in this role),
+  # scoped to callers that actually need it — see
+  # _context/wiki/transparent-proxy-enablement-plan.md.
+  notify: "Restart nomad on clients (consul-cni installed)"
+
+- name: Remove consul-cni zip file
+  ansible.builtin.file:
+    path: "{{ consul_cni_file.dest }}"
+    state: absent

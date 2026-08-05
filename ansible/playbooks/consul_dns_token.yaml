@@ -1,0 +1,375 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook: consul_dns_token.yaml
+#
+# Creates a dedicated Consul ACL token for DNS resolution and applies it to
+# every Consul agent in the cluster via `consul acl set-agent-token dns`.
+#
+# When Consul ACLs are enabled with a default-deny policy, the anonymous
+# token cannot read services or nodes, causing .global DNS lookups to return
+# NXDOMAIN for Docker task driver containers.  This playbook creates a scoped
+# `dns-access` policy and links it to a dedicated token that the Consul agent
+# uses exclusively for DNS queries.  The anonymous token is not modified.
+#
+# With `consul_acl_enable_token_persistence: true` (the project default),
+# the DNS token is persisted to the agent data directory and survives
+# restarts without requiring a consul.hcl config change.
+#
+# Prerequisites:
+#   - consul_servers.yaml     — Consul server agents deployed and healthy
+#   - consul_clients.yaml     — Consul client agents deployed and healthy
+#   - consul_acl_bootstrap.yaml — Consul ACL bootstrapped
+#     (generates ansible/tokens/consul-bootstrap-secret-id.txt)
+#
+# Idempotent: if consul-dns-secret-id.txt already exists locally, token
+# creation is skipped and the stored token is re-applied to all agents.
+#
+# Output files written on the Ansible control machine (mode 0600):
+#   ansible/tokens/consul-dns-secret-id.txt — DNS token SecretID
+#
+# Usage:
+#   ansible-playbook -i inventory.ini playbooks/consul_dns_token.yaml
+
+# ── Play 1: Create the dns-access policy and DNS token ────────────────────────
+
+- name: Create Consul DNS ACL policy and token
+  hosts: servers[0]
+  gather_facts: false
+
+  vars:
+    consul_bin_path: "/usr/local/bin/consul"
+    consul_http_addr: "http://127.0.0.1:8500"
+    consul_dns_staging_dir: "/tmp/consul-dns-acl"
+    consul_dns_policy_name: "dns-access"
+    consul_dns_policy_description: "Allow Consul agent to respond to DNS queries"
+    consul_dns_token_description: "Consul DNS token"
+    consul_dns_secret_id_file: "{{ inventory_dir }}/tokens/consul-dns-secret-id.txt"
+    consul_bootstrap_secret_id_file: "{{ inventory_dir }}/tokens/consul-bootstrap-secret-id.txt"
+    consul_datacenter: "dc1"
+
+  tasks:
+
+  # ── Idempotency: skip token creation when the local files already exist ───────
+
+  - name: Check if DNS token file already exists locally
+    become: false
+    ansible.builtin.stat:
+      path: "{{ consul_dns_secret_id_file }}"
+    delegate_to: localhost
+    run_once: true
+    register: consul_dns_token_file_stat
+
+  # Per-node agent token files — one per client, named after the node. Checked
+  # individually (not via a single sentinel file) so that adding a new client
+  # to an already-bootstrapped cluster (e.g. terraform apply with a higher
+  # client/ingress_client_count) only creates a token for the new node,
+  # rather than skipping token creation entirely because an unrelated
+  # existing client's file already exists — hit live when adding the
+  # dedicated ingress client, see
+  # _context/wiki/dedicated-ingress-node-plan.md.
+  - name: Check if each client's node-identity agent token file already exists locally
+    become: false
+    ansible.builtin.stat:
+      path: "{{ inventory_dir }}/tokens/consul-client-agent-{{ item }}-secret-id.txt"
+    delegate_to: localhost
+    run_once: true
+    loop: "{{ groups['clients'] }}"
+    loop_control:
+      label: "{{ item }}"
+    register: consul_client_agent_token_file_stats
+
+  - name: Compute which clients still need a node-identity agent token
+    ansible.builtin.set_fact:
+      consul_clients_needing_agent_tokens: >-
+        {{ consul_client_agent_token_file_stats.results
+           | rejectattr('stat.exists')
+           | map(attribute='item')
+           | list }}
+
+  # ── Read bootstrap token once (used by both creation blocks below) ───────────
+
+  - name: Read Consul bootstrap SecretID from local file
+    become: false
+    ansible.builtin.command: "cat {{ consul_bootstrap_secret_id_file }}"
+    changed_when: false
+    delegate_to: localhost
+    run_once: true
+    register: consul_bootstrap_pre_read
+    no_log: true
+    when: not consul_dns_token_file_stat.stat.exists or (consul_clients_needing_agent_tokens | length > 0)
+
+  - name: Set bootstrap SecretID fact
+    ansible.builtin.set_fact:
+      consul_bootstrap_secret_id: "{{ consul_bootstrap_pre_read.stdout | trim }}"
+    no_log: true
+    when: consul_bootstrap_pre_read.stdout is defined
+
+  # ── DNS token creation block ──────────────────────────────────────────────────
+
+  - name: Create DNS policy and token
+    when: not consul_dns_token_file_stat.stat.exists
+    run_once: true
+    block:
+
+    - name: Create staging directory for ACL policy file
+      become: true
+      ansible.builtin.file:
+        path: "{{ consul_dns_staging_dir }}"
+        state: directory
+        mode: "0700"
+        owner: root
+        group: root
+
+    - name: Copy DNS policy HCL file to server
+      become: true
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../files/consul/dns-policy.hcl"
+        dest: "{{ consul_dns_staging_dir }}/dns-policy.hcl"
+        mode: "0600"
+
+    - name: Check if dns-access policy already exists
+      ansible.builtin.command: >-
+        {{ consul_bin_path }} acl policy read
+        -name "{{ consul_dns_policy_name }}"
+      environment:
+        CONSUL_HTTP_TOKEN: "{{ consul_bootstrap_secret_id }}"
+        CONSUL_HTTP_ADDR: "{{ consul_http_addr }}"
+      register: consul_dns_policy_check
+      failed_when: false
+      changed_when: false
+
+    - name: Create dns-access Consul ACL policy
+      ansible.builtin.command: >-
+        {{ consul_bin_path }} acl policy create
+        -name "{{ consul_dns_policy_name }}"
+        -description "{{ consul_dns_policy_description }}"
+        -rules "@{{ consul_dns_staging_dir }}/dns-policy.hcl"
+      environment:
+        CONSUL_HTTP_TOKEN: "{{ consul_bootstrap_secret_id }}"
+        CONSUL_HTTP_ADDR: "{{ consul_http_addr }}"
+      when: consul_dns_policy_check.rc != 0
+
+    - name: Create Consul DNS token linked to dns-access policy
+      ansible.builtin.command: >-
+        {{ consul_bin_path }} acl token create
+        -description "{{ consul_dns_token_description }}"
+        -policy-name "{{ consul_dns_policy_name }}"
+      environment:
+        CONSUL_HTTP_TOKEN: "{{ consul_bootstrap_secret_id }}"
+        CONSUL_HTTP_ADDR: "{{ consul_http_addr }}"
+      register: consul_dns_token_result
+      no_log: true
+
+    - name: Parse DNS token SecretID
+      ansible.builtin.set_fact:
+        consul_dns_secret_id: >-
+          {{ consul_dns_token_result.stdout
+             | regex_search('SecretID:\s+([a-f0-9-]+)', '\1')
+             | first }}
+      no_log: true
+
+    - name: Ensure local tokens directory exists
+      become: false
+      ansible.builtin.file:
+        path: "{{ inventory_dir }}/tokens"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+
+    - name: Save DNS token SecretID to local file
+      become: false
+      ansible.builtin.copy:
+        content: "{{ consul_dns_secret_id }}"
+        dest: "{{ consul_dns_secret_id_file }}"
+        mode: "0600"
+      delegate_to: localhost
+      no_log: true
+
+    - name: Remove staging directory
+      become: true
+      ansible.builtin.file:
+        path: "{{ consul_dns_staging_dir }}"
+        state: absent
+
+  # ── Client agent token creation block (node identity, one token per client) ────
+
+  - name: Create node-identity agent token for each client that doesn't have one yet
+    when: consul_clients_needing_agent_tokens | length > 0
+    run_once: true
+    # Loop runs on servers[0] because this play targets servers[0].
+    # Each iteration creates one scoped token for the named client node.
+    block:
+
+    - name: Ensure local tokens directory exists
+      become: false
+      ansible.builtin.file:
+        path: "{{ inventory_dir }}/tokens"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+
+    - name: Create node-identity token for each Consul client missing one
+      loop: "{{ consul_clients_needing_agent_tokens }}"
+      loop_control:
+        label: "{{ item }}"
+      ansible.builtin.command: >-
+        {{ consul_bin_path }} acl token create
+        -description "Agent token for {{ item }}"
+        -node-identity "{{ item }}:{{ consul_datacenter }}"
+      environment:
+        CONSUL_HTTP_TOKEN: "{{ consul_bootstrap_secret_id }}"
+        CONSUL_HTTP_ADDR: "{{ consul_http_addr }}"
+      register: consul_node_identity_tokens
+      no_log: true
+
+    - name: Save each client's node-identity token SecretID to its own local file
+      loop: "{{ consul_node_identity_tokens.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      become: false
+      ansible.builtin.copy:
+        content: >-
+          {{ item.stdout
+             | regex_search('SecretID:\s+([a-f0-9-]+)', '\1')
+             | first }}
+        dest: "{{ inventory_dir }}/tokens/consul-client-agent-{{ item.item }}-secret-id.txt"
+        mode: "0600"
+      delegate_to: localhost
+      no_log: true
+
+# ── Play 2: Apply the DNS token to Consul SERVER agents (ACL already enabled) ──
+
+- name: Set DNS token on Consul server agents
+  hosts: servers
+  gather_facts: false
+
+  vars:
+    consul_bin_path: "/usr/local/bin/consul"
+    consul_http_addr: "http://127.0.0.1:8500"
+    consul_dns_secret_id_file: "{{ inventory_dir }}/tokens/consul-dns-secret-id.txt"
+    consul_bootstrap_secret_id_file: "{{ inventory_dir }}/tokens/consul-bootstrap-secret-id.txt"
+
+  tasks:
+
+  - name: Read Consul bootstrap SecretID from local file
+    become: false
+    ansible.builtin.command: "cat {{ consul_bootstrap_secret_id_file }}"
+    changed_when: false
+    delegate_to: localhost
+    run_once: true
+    register: consul_bootstrap_secret_id_out
+    no_log: true
+
+  - name: Set bootstrap SecretID fact on all hosts
+    ansible.builtin.set_fact:
+      consul_bootstrap_secret_id: "{{ consul_bootstrap_secret_id_out.stdout | trim }}"
+    no_log: true
+
+  - name: Read DNS token SecretID from local file
+    become: false
+    ansible.builtin.command: "cat {{ consul_dns_secret_id_file }}"
+    changed_when: false
+    delegate_to: localhost
+    run_once: true
+    register: consul_dns_secret_id_out
+    no_log: true
+
+  - name: Set DNS SecretID fact on all hosts
+    ansible.builtin.set_fact:
+      consul_dns_secret_id: "{{ consul_dns_secret_id_out.stdout | trim }}"
+    no_log: true
+
+  - name: Set DNS token on Consul agent
+    ansible.builtin.command: >-
+      {{ consul_bin_path }} acl set-agent-token dns "{{ consul_dns_secret_id }}"
+    environment:
+      CONSUL_HTTP_TOKEN: "{{ consul_bootstrap_secret_id }}"
+      CONSUL_HTTP_ADDR: "{{ consul_http_addr }}"
+    register: set_dns_token_result
+    changed_when: set_dns_token_result.rc == 0
+    failed_when: false
+    no_log: true
+
+  - name: Fail with visible error if DNS token was not set
+    ansible.builtin.fail:
+      msg: >-
+        consul acl set-agent-token dns failed on {{ inventory_hostname }}
+        (exit code: {{ set_dns_token_result.rc }}).
+        stderr: {{ set_dns_token_result.stderr | default('(empty)') }}
+        stdout: {{ set_dns_token_result.stdout | default('(empty)') }}
+    when: set_dns_token_result.rc != 0
+
+# ── Play 3: Reconfigure Consul clients with ACL enabled and proper tokens ───────
+#
+# Re-runs the consul role on each client with ACL enabled, the per-node
+# node-identity agent token (consul_acl_agent_token), and the shared DNS token
+# (consul_acl_dns_token).  The role renders a new consul.hcl that includes an
+# acl { tokens { agent = ... dns = ... } } block and restarts Consul.
+#
+# This replaces the previous drop-in dns-acl.hcl workaround.  If a leftover
+# dns-acl.hcl file is present from a previous run it is removed before the role
+# runs to avoid config file conflicts.
+
+- name: Reconfigure Consul clients with ACL enabled and node-identity tokens
+  hosts: clients
+  become: true
+  gather_facts: true
+
+  vars:
+    consul_dns_secret_id_file: "{{ inventory_dir }}/tokens/consul-dns-secret-id.txt"
+
+    # Consul role vars — mirror consul_clients.yaml with ACL turned on.
+    # consul_node_name is intentionally absent so it defaults to
+    # inventory_hostname, matching the node-identity tokens created in Play 1.
+    consul_server_enabled: false
+    consul_datacenter: "dc1"
+    consul_log_level: "INFO"
+    # consul_use_aws_cloud_join defaults to true (AWS); a non-AWS inventory
+    # (e.g. Multipass, see terraform/multipass/) sets it to false in
+    # [all:vars], which falls back to the consul role's static-IP retry_join.
+    consul_cloud_auto_join_enabled: "{{ consul_use_aws_cloud_join | default(true) | bool }}"
+    consul_cloud_auto_join_tag_key: "AutoJoinRole"
+    consul_cloud_auto_join_tag_value: "server"
+    consul_acl_enabled: true
+    consul_tls_enabled: true
+    consul_port_https: 8443
+    consul_connect_enabled: false
+
+  pre_tasks:
+
+  - name: Read DNS token SecretID from local file
+    become: false
+    ansible.builtin.command: "cat {{ consul_dns_secret_id_file }}"
+    changed_when: false
+    delegate_to: localhost
+    run_once: true
+    register: consul_dns_out
+    no_log: true
+
+  - name: Set DNS token fact on all clients
+    ansible.builtin.set_fact:
+      consul_acl_dns_token: "{{ consul_dns_out.stdout | trim }}"
+    no_log: true
+
+  - name: Read per-node agent token SecretID from local file
+    become: false
+    ansible.builtin.command: >-
+      cat {{ inventory_dir }}/tokens/consul-client-agent-{{ inventory_hostname }}-secret-id.txt
+    changed_when: false
+    delegate_to: localhost
+    register: consul_agent_out
+    no_log: true
+
+  - name: Set per-node agent token fact
+    ansible.builtin.set_fact:
+      consul_acl_agent_token: "{{ consul_agent_out.stdout | trim }}"
+    no_log: true
+
+  - name: Remove legacy ACL drop-in file if present
+    ansible.builtin.file:
+      path: /etc/consul.d/dns-acl.hcl
+      state: absent
+
+  roles:
+  - role: consul

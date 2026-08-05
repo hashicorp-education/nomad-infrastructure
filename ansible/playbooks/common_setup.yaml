@@ -1,0 +1,82 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook: common_setup.yaml
+#
+# Shared setup plays imported by every deploy_*.yaml playbook:
+#   1. Invalidate stale Ansible fact cache — clears any cached facts for this
+#      run's inventory hosts before the first gather_facts below
+#   2. Configure all hosts  — displays host info and ensures passwordless sudo
+#   3. Test Ansible connectivity — pings every host and shows the result
+#
+# Import this playbook at the top of any deploy playbook:
+#   - name: Import common setup
+#     ansible.builtin.import_playbook: common_setup.yaml
+
+# ── Invalidate stale Ansible fact cache ───────────────────────────────────────
+# ansible.cfg enables jsonfile fact_caching (fact_caching_connection=/tmp/ansible_facts,
+# fact_caching_timeout=3600) keyed by inventory_hostname. Terraform can destroy
+# and recreate a VM under the same hostname with a different IP well within
+# that hour (e.g. re-running `terraform apply` in terraform/multipass/ or
+# terraform/aws/ after a `terraform destroy`), so a cached entry from the old
+# VM silently survives and reintroduces its stale IP into bind_addr/
+# advertise_addr — Consul/Nomad then fail to start with "bind: cannot assign
+# requested address". Clear the cache for this run's hosts before the first
+# gather_facts below so every deploy starts from a real, current snapshot.
+- name: Invalidate stale Ansible fact cache
+  hosts: localhost
+  gather_facts: false
+  become: false
+  connection: local
+  tasks:
+  - name: Find cached fact files for current inventory hosts
+    ansible.builtin.find:
+      paths: /tmp/ansible_facts
+      patterns: "{{ groups['all'] | map('regex_replace', '^', '*') | list }}"
+    register: stale_fact_cache
+    failed_when: false
+
+  - name: Remove stale cached fact files
+    ansible.builtin.file:
+      path: "{{ item.path }}"
+      state: absent
+    loop: "{{ stale_fact_cache.files | default([]) }}"
+    loop_control:
+      label: "{{ item.path | basename }}"
+
+# ── Configure all hosts ───────────────────────────────────────────────────────
+
+- name: Configure all hosts
+  hosts: all
+  gather_facts: true
+  tasks:
+  - name: Display host information
+    ansible.builtin.debug:
+      msg: "Configuring {{ inventory_hostname }} ({{ ansible_facts['default_ipv4']['address'] | default('IP pending') }})"
+
+  - name: Display Ansible distribution
+    ansible.builtin.debug:
+      msg: "Ansible distribution: {{ ansible_facts['distribution'] }}"
+
+  - name: Allow 'ubuntu' user to have passwordless sudo
+    ansible.builtin.lineinfile:
+      path: /etc/sudoers.d/ubuntu_sudo
+      line: 'ubuntu ALL=(ALL) NOPASSWD:ALL'
+      state: present
+      mode: '0440'
+      create: true
+      validate: '/usr/sbin/visudo -cf %s'
+
+# ── Test Ansible connectivity ─────────────────────────────────────────────────
+
+- name: Test Ansible connectivity
+  hosts: all
+  gather_facts: false
+  tasks:
+  - name: Ping all hosts
+    ansible.builtin.ping:
+    register: ping_result
+
+  - name: Show ping result
+    ansible.builtin.debug:
+      var: ping_result

@@ -1,0 +1,71 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook: get_started.yaml
+#
+# Prerequisites (all must be complete before running this playbook):
+#   1. common_setup.yaml — all hosts configured, Ansible connectivity tested
+#
+# Configures a single combined Nomad server+client node, mirroring the
+# `nomad agent -dev` experience used by the "Get Started" tutorials at
+# https://developer.hashicorp.com/nomad/tutorials/get-started — no Consul,
+# no TLS, no ACLs. Intended for use with `server_count = 1, client_count = 0`
+# in terraform/aws/terraform.tfvars.
+#
+# This targets `hosts: servers` (the single provisioned node) and enables
+# both nomad_server_enabled and nomad_client_enabled in the same play, so
+# the node is simultaneously a server and a client — bootstrap_expect is 1
+# since there is only one server to elect as leader.
+
+- name: Configure a single-node Nomad dev-style agent
+  hosts: servers
+  become: true
+
+  vars:
+    nomad_server_enabled: true
+    nomad_client_enabled: true
+    nomad_server_bootstrap_expect: 1
+    nomad_node_name: "nomad-get-started"
+    nomad_cloud_auto_join_enabled: false
+    nomad_acl_enabled: false
+    nomad_tls_enabled: false
+    nomad_log_level: "DEBUG"
+    nomad_enable_debug: true
+
+  roles:
+  - role: common
+    vars:
+      common_hostname: "{{ inventory_hostname }}"
+
+  - role: geerlingguy.docker
+    become: true
+    vars:
+      docker_users:
+      - "{{ ansible_user }}"
+
+  - role: helper
+    vars:
+      helper_apt_packages:
+      - jq
+      - net-tools
+      - unzip
+
+  - role: helper
+    when: nomad_edition == 'enterprise'
+    vars:
+      helper_file_copy_local:
+      - src: "{{ inventory_dir }}/licenses/nomad.hclic"
+        dst: "/etc/nomad.d/.license/license.hclic"
+        mode: "0600"
+        notify: "Restart nomad"
+
+  - role: nomad
+
+  post_tasks:
+  - name: Wait for Nomad to be ready
+    ansible.builtin.wait_for:
+      port: 4646
+      delay: 5
+      timeout: 60
+      host: "{{ ansible_facts['default_ipv4']['address'] }}"
+      state: started

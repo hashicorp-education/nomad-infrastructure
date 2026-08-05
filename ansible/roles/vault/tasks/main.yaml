@@ -1,0 +1,94 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Vault role tasks
+
+- name: Install Vault binary
+  ansible.builtin.include_role:
+    name: hashicorp_release
+  vars:
+    hashicorp_release_product_name: "vault"
+    hashicorp_release_product_version: "{{ vault_binary_version }}"
+
+- name: Create Vault configuration directory
+  become: true
+  ansible.builtin.file:
+    path: "{{ vault_config_dir }}"
+    state: directory
+    mode: "0700"
+    owner: "{{ vault_user }}"
+    group: "{{ vault_group }}"
+
+- name: Create Vault data directory
+  become: true
+  ansible.builtin.file:
+    path: "{{ vault_data_dir }}"
+    state: directory
+    mode: "0700"
+    owner: "{{ vault_user }}"
+    group: "{{ vault_group }}"
+
+- name: Create Vault configuration file
+  become: true
+  ansible.builtin.template:
+    src: vault.hcl.j2
+    dest: "{{ vault_config_dir }}/vault.hcl"
+    owner: "{{ vault_user }}"
+    group: "{{ vault_group }}"
+    mode: "0600"
+  notify: Restart vault
+
+- name: Slurp rendered vault.hcl for debug
+  become: true
+  ansible.builtin.slurp:
+    src: "{{ vault_config_dir }}/vault.hcl"
+  register: _vault_hcl_content
+  changed_when: false
+  tags:
+    - debug_config
+
+- name: Print rendered vault.hcl
+  ansible.builtin.debug:
+    msg: "{{ _vault_hcl_content.content | b64decode }}"
+    verbosity: 1
+  tags:
+    - debug_config
+
+- name: Validate Vault configuration
+  become: true
+  ansible.builtin.command: >-
+    /usr/local/bin/vault operator diagnose -config={{ vault_config_dir }}/vault.hcl
+  register: vault_diagnose
+  changed_when: false
+  failed_when: false
+  tags:
+    - vault_validate
+
+- name: Show Vault configuration diagnostics
+  ansible.builtin.debug:
+    msg: "{{ vault_diagnose.stdout_lines }}"
+    verbosity: 1
+  tags:
+    - vault_validate
+
+- name: Create Vault systemd service file
+  become: true
+  ansible.builtin.template:
+    src: vault.service.j2
+    dest: "/etc/systemd/system/{{ vault_service_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Enable vault
+
+- name: Flush handlers to reload systemd before starting Vault
+  ansible.builtin.meta: flush_handlers
+
+- name: Ensure Vault service is started
+  become: true
+  ansible.builtin.systemd_service:
+    name: "{{ vault_service_name }}"
+    state: started
+    enabled: true

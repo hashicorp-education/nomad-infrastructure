@@ -1,0 +1,205 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook: vault_servers.yaml
+# Description: Configure a self-hosted Vault server cluster (Raft integrated
+#              storage, TLS) on the [servers] group, then initialize and
+#              unseal it. Does not require Consul.
+# Requirements:
+#   - Ansible 2.14+
+#   - Target hosts: Ubuntu 20.04+ (Debian family)
+#   - Nomad server cluster does not need to be running first, but this
+#     playbook is normally run after nomad_servers.yaml/nomad_clients.yaml so
+#     that nomad_vault_integration.yaml can be run immediately afterward.
+# Variables:
+#   - vault_binary_version: Vault release to install (default: 1.20.1)
+#   - vault_tls_enabled: enable TLS (default: true)
+# Usage:
+#   ansible-playbook -i inventory.ini vault_servers.yaml
+#   ansible-playbook -i inventory.ini vault_servers.yaml --tags debug_config
+
+- name: Configure Vault servers
+  hosts: servers
+  become: true
+  gather_facts: true
+
+  vars:
+    vault_node_name: "vault-server-{{ groups['servers'].index(inventory_hostname) + 1 }}"
+    vault_tls_enabled: true
+    vault_cloud_auto_join_enabled: false
+
+  roles:
+  - role: common
+    vars:
+      common_hostname: "{{ inventory_hostname }}"
+
+  - role: tls
+    when: vault_tls_enabled
+    tls_self_signed_generate:
+    - agent-name: "{{ inventory_hostname }}"
+      ip: "{{ ansible_facts['default_ipv4']['address'] }}"
+      dns: "server.global.vault"
+
+  - role: helper
+    vars:
+      helper_apt_packages:
+      - jq
+      - net-tools
+      - unzip
+
+  - role: helper
+    when: vault_tls_enabled | bool
+    vars:
+      helper_file_copy_local:
+      - src: "{{ inventory_dir }}/.tls/ca.pem"
+        dst: "/etc/vault.d/.tls/ca.crt"
+        mode: "0644"
+        notify: "Restart vault"
+      - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}.pem"
+        dst: "/etc/vault.d/.tls/vault.crt"
+        mode: "0644"
+        notify: "Restart vault"
+      - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}-key.pem"
+        dst: "/etc/vault.d/.tls/vault.key"
+        mode: "0600"
+        notify: "Restart vault"
+
+  - role: vault
+
+  post_tasks:
+  - name: Wait for Vault to be reachable
+    ansible.builtin.wait_for:
+      port: "{{ vault_api_port }}"
+      delay: 5
+      timeout: 60
+      host: "{{ ansible_facts['default_ipv4']['address'] }}"
+      state: started
+
+  - name: Initialize and unseal Vault
+    vars:
+      vault_bin_path: "/usr/local/bin/vault"
+      vault_local_addr: "https://127.0.0.1:{{ vault_api_port }}"
+      vault_local_cacert: "/etc/vault.d/.tls/ca.crt"
+    block:
+
+    # -- Initialize Vault (first server only) ----------------------------------
+
+    - name: Check if Vault is already initialized
+      ansible.builtin.command: "{{ vault_bin_path }} status -format=json"
+      environment:
+        VAULT_ADDR: "{{ vault_local_addr }}"
+        VAULT_CACERT: "{{ vault_local_cacert }}"
+      register: vault_status_result
+      changed_when: false
+      failed_when: false
+      run_once: true
+      delegate_to: "{{ groups['servers'] | first }}"
+
+    - name: Parse Vault status
+      ansible.builtin.set_fact:
+        vault_status: "{{ vault_status_result.stdout | from_json }}"
+      run_once: true
+      delegate_to: "{{ groups['servers'] | first }}"
+
+    - name: Initialize Vault with a single unseal key share
+      ansible.builtin.command: >-
+        {{ vault_bin_path }} operator init -key-shares=1 -key-threshold=1 -format=json
+      environment:
+        VAULT_ADDR: "{{ vault_local_addr }}"
+        VAULT_CACERT: "{{ vault_local_cacert }}"
+      register: vault_init_result
+      when: not vault_status.initialized
+      run_once: true
+      delegate_to: "{{ groups['servers'] | first }}"
+      no_log: true
+
+    - name: Save Vault init output locally
+      when: vault_init_result is not skipped
+      run_once: true
+      delegate_to: localhost
+      become: false
+      no_log: true
+      block:
+
+      - name: Ensure local tokens directory exists
+        ansible.builtin.file:
+          path: "{{ inventory_dir }}/tokens"
+          state: directory
+          mode: "0700"
+
+      - name: Parse Vault init JSON
+        ansible.builtin.set_fact:
+          vault_init_json: "{{ vault_init_result.stdout | from_json }}"
+
+      - name: Save full Vault init output to local file
+        ansible.builtin.copy:
+          content: |
+            Vault Initialization Output
+            ============================
+            Generated: {{ now(fmt='%Y-%m-%d %H:%M:%S') }}
+
+            {{ vault_init_result.stdout }}
+
+            SECURITY NOTE
+            =============
+            This cluster was initialized with a single unseal key share
+            (-key-shares=1 -key-threshold=1) for tutorial simplicity. Do not
+            use this pattern for a production Vault cluster — use Shamir's
+            default 5-of-3 split or auto-unseal with a cloud KMS.
+          dest: "{{ inventory_dir }}/tokens/vault-init-output.txt"
+          mode: "0600"
+
+      - name: Save Vault root token SecretID only
+        ansible.builtin.copy:
+          content: "{{ vault_init_json.root_token }}"
+          dest: "{{ inventory_dir }}/tokens/vault-root-token-secret-id.txt"
+          mode: "0600"
+
+      - name: Save Vault unseal key only
+        ansible.builtin.copy:
+          content: "{{ vault_init_json.unseal_keys_b64[0] }}"
+          dest: "{{ inventory_dir }}/tokens/vault-unseal-key.txt"
+          mode: "0600"
+
+    # -- Unseal Vault (every server) --------------------------------------------
+
+    - name: Read Vault unseal key from local file
+      ansible.builtin.command: "cat {{ inventory_dir }}/tokens/vault-unseal-key.txt"
+      changed_when: false
+      delegate_to: localhost
+      become: false
+      register: vault_unseal_key_out
+      no_log: true
+
+    - name: Check current Vault seal status
+      ansible.builtin.command: "{{ vault_bin_path }} status -format=json"
+      environment:
+        VAULT_ADDR: "{{ vault_local_addr }}"
+        VAULT_CACERT: "{{ vault_local_cacert }}"
+      register: vault_seal_status_result
+      changed_when: false
+      failed_when: false
+
+    - name: Unseal Vault
+      ansible.builtin.command: >-
+        {{ vault_bin_path }} operator unseal {{ vault_unseal_key_out.stdout | trim }}
+      environment:
+        VAULT_ADDR: "{{ vault_local_addr }}"
+        VAULT_CACERT: "{{ vault_local_cacert }}"
+      when: (vault_seal_status_result.stdout | from_json).sealed
+      changed_when: true
+      no_log: true
+
+  - name: Display Vault cluster status
+    ansible.builtin.debug:
+      msg:
+        - "=========================================="
+        - "VAULT SERVER {{ inventory_hostname }} READY"
+        - "=========================================="
+        - "Root token and unseal key saved to:"
+        - "  - {{ inventory_dir }}/tokens/vault-root-token-secret-id.txt"
+        - "  - {{ inventory_dir }}/tokens/vault-unseal-key.txt"
+        - ""
+        - "Next: run nomad_vault_integration.yaml to configure Vault JWT auth"
+        - "for Nomad workload identity."
+        - "=========================================="

@@ -1,0 +1,9 @@
+{# Copyright (c) HashiCorp, Inc. #}
+{# SPDX-License-Identifier: MPL-2.0 #}
+{
+  "jwks_url": "{{ nomad_vault_jwks_url }}",
+{% if nomad_vault_jwks_ca_cert %}
+  "jwks_ca_pem": {{ nomad_vault_jwks_ca_cert | to_json }},
+{% endif %}
+  "default_role": "{{ nomad_vault_role_name }}"
+}

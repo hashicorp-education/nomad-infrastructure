@@ -1,0 +1,24 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# nomad_consul role tasks — entry point
+#
+# Runs the two integration phases in order.  Control which phases execute with:
+#   nomad_consul_run_service_discovery: false  — skip agent policy/token setup
+#   nomad_consul_run_workload_identity: false  — skip JWT auth method setup
+#
+# Both flags default to true, so calling this role directly runs the full
+# integration (same behaviour as before the split).
+
+- name: Configure Consul ACL for Nomad service discovery
+  ansible.builtin.include_tasks: service_discovery.yaml
+  when: nomad_consul_run_service_discovery | bool
+
+- name: Configure Consul JWT auth method and binding rules for Nomad workload identity
+  ansible.builtin.include_tasks: workload_identity.yaml
+  when: nomad_consul_run_workload_identity | bool
+
+- name: Configure Consul ACL binding rule for the Nomad API Gateway (service mesh)
+  ansible.builtin.include_tasks: service_mesh.yaml
+  when: nomad_consul_run_service_mesh | bool
+

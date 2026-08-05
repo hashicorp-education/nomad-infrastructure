@@ -1,0 +1,213 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Consul role argument specifications (Ansible 2.11+)
+# Enables automatic validation of role input variables at play time.
+
+argument_specs:
+  main:
+    short_description: Install and configure a Consul agent
+    description:
+      - Installs the Consul binary via the hashicorp_release role and writes
+        an HCL agent configuration under consul_config_dir.
+      - Supports server mode (consul_server_enabled=true) and client mode
+        (consul_server_enabled=false).
+      - Optionally enables ACLs, TLS, gossip encryption, and Consul Connect.
+    author:
+      - nomad-infra
+
+    options:
+      consul_binary_version:
+        type: str
+        required: false
+        default: "2.0.2"
+        description: Consul release version to install.
+
+      consul_edition:
+        type: str
+        required: false
+        default: "oss"
+        choices: ["oss", "enterprise"]
+        description: >-
+          When "enterprise", installs the "+ent" release artifact and
+          renders license_path at the top level of consul.hcl, pointing at
+          a license file distributed by the calling playbook. Required on
+          every Consul agent (servers and clients), not just servers.
+
+      consul_manage_user:
+        type: bool
+        required: false
+        default: true
+        description: Create the consul system user when true.
+
+      consul_manage_group:
+        type: bool
+        required: false
+        default: true
+        description: Create the consul system group when true.
+
+      consul_user:
+        type: str
+        required: false
+        default: consul
+        description: OS user that runs the Consul agent.
+
+      consul_group:
+        type: str
+        required: false
+        default: consul
+        description: OS group that owns Consul directories.
+
+      consul_server_enabled:
+        type: bool
+        required: false
+        default: false
+        description: Run this node as a Consul server agent.
+
+      consul_server_bootstrap_expect:
+        type: int
+        required: false
+        default: 3
+        description: Expected number of server nodes in the cluster (server mode only).
+
+      consul_datacenter:
+        type: str
+        required: false
+        default: dc1
+        description: Consul datacenter name.
+
+      consul_domain:
+        type: str
+        required: false
+        default: global
+        description: DNS domain for Consul service discovery.
+
+      consul_bind_addr:
+        type: str
+        required: false
+        description: >
+          Address the Consul agent binds to.
+          Defaults to the host's default IPv4 address.
+
+      consul_client_addr:
+        type: str
+        required: false
+        default: "0.0.0.0"
+        description: >
+          Address Consul listens on for HTTP/DNS/gRPC client requests when
+          consul_tls_enabled is false. Restrict to 127.0.0.1 in production to
+          prevent unwanted API exposure.
+
+      consul_addr_http:
+        type: str
+        required: false
+        default: "127.0.0.1"
+        description: >
+          Address the plain-HTTP listener binds to in the addresses{} block,
+          rendered only when consul_tls_enabled is true. Loopback-only by
+          default so plain HTTP remains available for local automation and
+          Nomad's local consul{} integration without being reachable
+          externally.
+
+      consul_addr_https:
+        type: str
+        required: false
+        default: "0.0.0.0"
+        description: >
+          Address the HTTPS listener binds to in the addresses{} block,
+          rendered only when consul_tls_enabled is true. 0.0.0.0 exposes the
+          HTTPS API/UI on all interfaces.
+
+      consul_cloud_auto_join_enabled:
+        type: bool
+        required: false
+        default: false
+        description: >
+          Enable AWS cloud auto-join. Requires the EC2 instance profile to have
+          ec2:DescribeInstances permission and instances tagged with
+          consul_cloud_auto_join_tag_key/value.
+
+      consul_cloud_auto_join_tag_key:
+        type: str
+        required: false
+        default: AutoJoinRole
+        description: EC2 tag key used for cloud auto-join discovery.
+
+      consul_cloud_auto_join_tag_value:
+        type: str
+        required: false
+        default: server
+        description: EC2 tag value used for cloud auto-join discovery.
+
+      consul_acl_enabled:
+        type: bool
+        required: false
+        default: false
+        description: Enable Consul ACL system.
+
+      consul_acl_default_policy:
+        type: str
+        required: false
+        default: deny
+        description: >
+          Default ACL policy when no matching rule is found.
+          Use 'deny' for production (allowlist model).
+
+      consul_acl_agent_token:
+        type: str
+        required: false
+        default: ""
+        description: >
+          ACL token written to acl.tokens.agent in consul.hcl.
+          Used by the Consul agent for its own catalog operations (node
+          registration). Set this to a node-identity token per host.
+          When empty the tokens{} block is omitted from consul.hcl.
+
+      consul_acl_dns_token:
+        type: str
+        required: false
+        default: ""
+        description: >
+          ACL token written to acl.tokens.dns in consul.hcl.
+          Used by the Consul agent to authorise DNS query responses.
+          Set this to the shared dns-access token created by
+          consul_dns_token.yaml. When empty the tokens{} block is omitted.
+
+      consul_tls_enabled:
+        type: bool
+        required: false
+        default: true
+        description: >
+          Enable TLS for agent communication. Requires certificates in
+          consul_tls_dir before the role runs. Splits the tls{} block into
+          https{} (verify_incoming=false, CA-trust-only API access) and
+          internal_rpc{} (full mTLS, verify_server_hostname=true), and renders
+          the addresses{} block (consul_addr_http/consul_addr_https) for the
+          hybrid loopback-HTTP + external-HTTPS access model.
+
+      consul_gossip_encryption_enabled:
+        type: bool
+        required: false
+        default: false
+        description: Enable gossip layer encryption.
+
+      consul_gossip_encryption_key:
+        type: str
+        required: false
+        default: ""
+        description: >
+          Base64-encoded 32-byte gossip encryption key.
+          Generate with: consul keygen
+          Required when consul_gossip_encryption_enabled is true.
+
+      consul_connect_enabled:
+        type: bool
+        required: false
+        default: false
+        description: Enable Consul Connect (service mesh / mTLS sidecar proxies).
+
+      consul_log_level:
+        type: str
+        required: false
+        default: INFO
+        description: "Consul log verbosity. One of: TRACE, DEBUG, INFO, WARN, ERR."

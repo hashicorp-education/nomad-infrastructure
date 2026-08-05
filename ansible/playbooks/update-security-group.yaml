@@ -1,0 +1,139 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+- name: Update AWS Security Group for Nomad Infrastructure
+  hosts: localhost
+  gather_facts: false
+  become: false
+  vars:
+    aws_region: "{{ lookup('env', 'AWS_REGION') | default('us-east-2', true) }}"
+    project_name: "{{ lookup('env', 'PROJECT_NAME') | default('nomad-consul', true) }}"
+    # Custom port to add (can be overridden via -e custom_port=XXXX)
+    custom_port: "{{ lookup('env', 'CUSTOM_PORT') | default('9002', true) }}"
+    custom_port_description: "{{ lookup('env', 'CUSTOM_PORT_DESC') | default('Custom application port', true) }}"
+  
+  tasks:
+    - name: Get security group information
+      amazon.aws.ec2_security_group_info:
+        region: "{{ aws_region }}"
+        filters:
+          "tag:Name": "{{ project_name }}-sg"
+      register: sg_info
+
+    - name: Fail if security group not found
+      ansible.builtin.fail:
+        msg: |
+          Security group {{ project_name }}-sg not found in region {{ aws_region }}.
+          
+          Troubleshooting:
+          - Verify the project_name matches your Terraform deployment
+          - Check the AWS region is correct
+          - Ensure Terraform has been applied successfully
+          
+          Current settings:
+            Project Name: {{ project_name }}
+            AWS Region: {{ aws_region }}
+      when: sg_info.security_groups | length == 0
+
+    - name: Display current security group info
+      ansible.builtin.debug:
+        msg:
+          - "Security Group: {{ sg_info.security_groups[0].group_name }}"
+          - "VPC ID: {{ sg_info.security_groups[0].vpc_id }}"
+          - "Current ingress rules: {{ sg_info.security_groups[0].ip_permissions | length }}"
+
+    - name: Check if custom port already exists
+      ansible.builtin.set_fact:
+        port_exists: "{{ sg_info.security_groups[0].ip_permissions | selectattr('from_port', 'defined') | selectattr('from_port', 'equalto', custom_port | int) | list | length > 0 }}"
+
+    - name: Display port status
+      ansible.builtin.debug:
+        msg: "Port {{ custom_port }} {{ 'already exists' if port_exists else 'will be added' }} in security group"
+
+    - name: Build existing rules list
+      ansible.builtin.set_fact:
+        existing_rules: "{{ sg_info.security_groups[0].ip_permissions | map('dict2items') | flatten | map(attribute='value') | list }}"
+
+    - name: Add ingress rule for custom port
+      amazon.aws.ec2_security_group:
+        name: "{{ sg_info.security_groups[0].group_name }}"
+        description: "{{ sg_info.security_groups[0].description }}"
+        vpc_id: "{{ sg_info.security_groups[0].vpc_id }}"
+        region: "{{ aws_region }}"
+        purge_rules: false  # Important: Don't remove existing rules
+        rules:
+          - proto: tcp
+            from_port: "{{ custom_port }}"
+            to_port: "{{ custom_port }}"
+            cidr_ip: 0.0.0.0/0
+            rule_desc: "{{ custom_port_description }}"
+        state: present
+      register: sg_update
+      when: not port_exists
+
+    - name: Display security group update result
+      ansible.builtin.debug:
+        msg:
+          - "✓ Security group {{ sg_info.security_groups[0].group_name }} updated successfully"
+          - "✓ Added ingress rule for port {{ custom_port }}"
+          - "✓ Description: {{ custom_port_description }}"
+      when: sg_update.changed | default(false)
+
+    - name: Display message if no changes needed
+      ansible.builtin.debug:
+        msg:
+          - "ℹ Port {{ custom_port }} ingress rule already exists"
+          - "ℹ Security group: {{ sg_info.security_groups[0].group_name }}"
+          - "ℹ No changes made"
+      when: port_exists
+
+    - name: Display usage instructions
+      ansible.builtin.debug:
+        msg:
+          - ""
+          - "=== Security Group Update Complete ==="
+          - ""
+          - "To add a different port, run:"
+          - "  ansible-playbook update-security-group.yaml -e custom_port=8080 -e custom_port_description='My App'"
+          - ""
+          - "To use a different region:"
+          - "  ansible-playbook update-security-group.yaml -e aws_region=us-west-2"
+          - ""
+          - "To use a different project:"
+          - "  ansible-playbook update-security-group.yaml -e project_name=my-project"
+          - ""
+          - "Current configuration:"
+          - "  Project: {{ project_name }}"
+          - "  Region: {{ aws_region }}"
+          - "  Port: {{ custom_port }}"
+          - ""
+      run_once: true
+
+# Usage Examples:
+#
+# 1. Add port 9002 (default):
+#    ansible-playbook update-security-group.yaml
+#
+# 2. Add custom port:
+#    ansible-playbook update-security-group.yaml -e custom_port=8080 -e custom_port_description="Web Application"
+#
+# 3. Use different region:
+#    ansible-playbook update-security-group.yaml -e aws_region=us-west-2
+#
+# 4. Use environment variables:
+#    export AWS_REGION=us-east-2
+#    export PROJECT_NAME=nomad-consul
+#    export CUSTOM_PORT=9002
+#    export CUSTOM_PORT_DESC="Countdash web app"
+#    ansible-playbook update-security-group.yaml
+#
+# 5. Multiple ports (run multiple times):
+#    ansible-playbook update-security-group.yaml -e custom_port=9002 -e custom_port_description="Countdash"
+#    ansible-playbook update-security-group.yaml -e custom_port=8080 -e custom_port_description="Admin UI"
+#
+# Requirements:
+#   - amazon.aws collection: ansible-galaxy collection install amazon.aws
+#   - AWS credentials configured (AWS CLI or environment variables)
+#   - Terraform infrastructure deployed
+#
+

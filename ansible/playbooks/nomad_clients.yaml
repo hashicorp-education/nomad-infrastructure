@@ -1,0 +1,82 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook to configure Nomad clients
+
+- name: Configure Nomad clients
+  hosts: clients
+  become: true
+
+  vars:
+    nomad_server_enabled: false
+    nomad_client_enabled: true
+    nomad_node_name: "nomad-client-{{ groups['clients'].index(inventory_hostname) + 1 }}"
+    nomad_cloud_auto_join_enabled: false
+    nomad_cloud_auto_join_tag_key: "AutoJoinRole"
+    nomad_cloud_auto_join_tag_value: "client"
+    nomad_acl_enabled: true
+    nomad_log_level: "DEBUG"
+    nomad_enable_debug: true
+    nomad_tls_enabled: true
+    nomad_client_use_consul_token: true
+
+  roles:
+  - role: common
+    vars:
+      common_hostname: "{{ inventory_hostname }}"
+
+  - role: cni
+
+  - role: geerlingguy.docker
+    become: true
+    vars:
+      docker_users:
+      - "{{ ansible_user }}"
+
+  - role: tls
+    when: nomad_tls_enabled
+    tls_self_signed_generate:
+    - agent-name: "{{ inventory_hostname }}"
+      ip: "{{ ansible_facts['default_ipv4']['address'] }}"
+      dns: "client.global.nomad"
+
+  - role: helper
+    vars:
+      helper_apt_packages:
+      - jq
+      - net-tools
+      - unzip
+      - build-essential
+      - git
+      helper_file_write_content:
+      - content: "bridge"
+        dst: "/etc/modules-load.d/nomad.conf"
+        mode: "0644"
+
+  - role: helper
+    when: nomad_tls_enabled | bool
+    vars:
+      helper_file_copy_local:
+      - src: "{{ inventory_dir }}/.tls/ca.pem"
+        dst: "/etc/nomad.d/.tls/ca.crt"
+        mode: "0644"
+        notify: "Restart nomad"
+      - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}.pem"
+        dst: "/etc/nomad.d/.tls/nomad.crt"
+        mode: "0644"
+        notify: "Restart nomad"
+      - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}-key.pem"
+        dst: "/etc/nomad.d/.tls/nomad.key"
+        mode: "0600"
+        notify: "Restart nomad"
+
+  - role: nomad
+
+  post_tasks:
+  - name: Wait for Nomad to be ready
+    ansible.builtin.wait_for:
+      port: 4646
+      delay: 5
+      timeout: 60
+      host: "{{ ansible_facts['default_ipv4']['address'] }}"
+      state: started

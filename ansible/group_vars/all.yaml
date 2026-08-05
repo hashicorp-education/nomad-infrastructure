@@ -1,0 +1,60 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Cluster-wide settings — the single place to tune versions and key cluster
+# parameters for this project.
+#
+# These variables override the per-role defaults/ values and are visible to
+# every role and playbook in this project. Ansible resolves group_vars/all.yaml
+# relative to inventory.ini (ansible/inventory.ini), so this file is loaded
+# automatically for every host in every play.
+#
+# To pin a specific version, set the value to the desired release tag.
+# To fall back to a role's own default, remove or comment out the variable.
+#
+# Precedence (low → high):
+#   role defaults/  <  group_vars/all.yaml (this file)  <  playbook vars  <  -e
+
+# HashiCorp Nomad — https://releases.hashicorp.com/nomad
+nomad_binary_version: "2.0.4"
+
+# HashiCorp Consul — https://releases.hashicorp.com/consul
+consul_binary_version: "2.0.2"
+# Consul datacenter name — used in consul.hcl and in Consul DNS names:
+#   <service>.service.<datacenter>.<domain>
+consul_datacenter: "dc1"
+# Consul DNS domain — all service DNS names end with .<domain>.
+# The default Consul domain is "consul"; this project uses "global" to avoid
+# conflicts with the ICANN-registered .consul TLD and to scope the domain
+# to this cluster explicitly.
+consul_domain: "global"
+
+# CNI plugins — https://github.com/containernetworking/plugins/releases
+cni_plugins_version: "1.9.1"
+
+# consul-cni — https://releases.hashicorp.com/consul-cni
+# Only installed when consul_cni_enabled: true (service-mesh transparent
+# proxy scenario). Provisional pin, same caveat as consul_binary_version
+# above — re-verify compatibility against the actual installed Consul/Nomad
+# versions before relying on it (see _context/wiki/consul-service-mesh-plan.md §4).
+consul_cni_version: "1.6.2"
+
+# HashiCorp Vault — https://releases.hashicorp.com/vault
+vault_binary_version: "1.20.1"
+
+# dnsmasq — listen on both loopback (host processes) and the Docker bridge
+# gateway (Docker task driver containers) so .global DNS works in all contexts.
+# 172.17.0.1 is the default docker0 gateway; adjust if Docker is configured
+# with a non-default bridge subnet.
+dnsmasq_listen_addresses:
+  - "127.0.0.1"
+  - "172.17.0.1"
+
+# HashiCorp Enterprise licensing — see
+# _context/wiki/enterprise-licensing-plan.md. Set to "enterprise" to install
+# +ent binaries and load a license. License files (gitignored, not
+# committed) must exist at:
+#   ansible/licenses/nomad.hclic   — required on Nomad servers only
+#   ansible/licenses/consul.hclic  — required on all Consul agents
+nomad_edition: "oss"
+consul_edition: "oss"

@@ -1,0 +1,149 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook: consul_servers.yaml
+# Description: Install Docker and configure Consul v2.x server agents on the
+#              [servers] group from the Terraform-generated inventory.ini.
+# Requirements:
+#   - Ansible 2.14+
+#   - geerlingguy.docker role (ansible-galaxy install -r requirements.yaml)
+#   - Target hosts: Ubuntu 20.04+ (Debian family)
+# Variables:
+#   - consul_binary_version: Consul release to install (default: 2.0.2)
+#   - consul_datacenter: Consul datacenter name (default: dc1)
+#   - consul_use_aws_cloud_join: enable AWS cloud auto-join (default: true).
+#     Set to false (e.g. via [all:vars] in a non-AWS inventory) to fall back
+#     to the consul role's static-IP retry_join instead.
+#   - consul_acl_enabled: enable ACLs (default: false)
+#   - consul_tls_enabled: enable TLS (default: true)
+#   - consul_edition: "oss" or "enterprise" (default: oss, see group_vars/all.yaml).
+#     When "enterprise", requires ansible/licenses/consul.hclic to exist.
+# Usage:
+#   ansible-playbook -i inventory.ini consul_servers.yaml
+#   ansible-playbook -i inventory.ini consul_servers.yaml --tags consul_config
+
+- name: Configure Consul servers
+  hosts: servers
+  become: true
+  gather_facts: true
+
+  vars:
+    # --- Consul role variables ---
+    consul_server_enabled: true
+    consul_server_bootstrap_expect: "{{ groups['servers'] | length }}"
+    consul_node_name: "consul-server-{{ groups['servers'].index(inventory_hostname) + 1 }}"
+    consul_datacenter: "dc1"
+    consul_log_level: "INFO"
+    consul_ui_enabled: true
+    # Cloud auto-join using the AutoJoinRole tag created by Terraform.
+    # consul_use_aws_cloud_join defaults to true (AWS); a non-AWS inventory
+    # (e.g. Multipass, see terraform/multipass/) sets it to false in
+    # [all:vars], which falls back to the consul role's static-IP retry_join.
+    consul_cloud_auto_join_enabled: "{{ consul_use_aws_cloud_join | default(true) | bool }}"
+    consul_cloud_auto_join_tag_key: "AutoJoinRole"
+    consul_cloud_auto_join_tag_value: "server"
+    # ACL enabled; run consul_acl_bootstrap.yaml after first deploy to get the management token
+    consul_acl_enabled: true
+    consul_tls_enabled: true
+    consul_port_https: 8443
+    consul_connect_enabled: false
+
+  pre_tasks:
+  # The consul role normally creates this user/group, but the TLS cert helper
+  # role below (which chowns files to consul_user/consul_group) runs before
+  # the consul role. Create the system account early so chown succeeds.
+  - name: Create consul system group
+    ansible.builtin.group:
+      name: "{{ consul_group }}"
+      system: true
+      state: present
+    when: consul_manage_group | bool
+
+  - name: Create consul system user
+    ansible.builtin.user:
+      name: "{{ consul_user }}"
+      group: "{{ consul_group }}"
+      system: true
+      shell: /usr/sbin/nologin
+      create_home: false
+      state: present
+    when: consul_manage_user | bool
+
+  roles:
+  - role: common
+    vars:
+      common_hostname: "{{ inventory_hostname }}"
+
+  # Install Docker on every node before Consul
+  - role: geerlingguy.docker
+    become: true
+    vars:
+      docker_users:
+      - "{{ ansible_user }}"
+
+  - role: helper
+    vars:
+      helper_apt_packages:
+      - jq
+      - net-tools
+      - unzip
+      - nano
+      - curl
+
+  - role: tls
+    when: consul_tls_enabled
+    tls_self_signed_generate:
+    - agent-name: "{{ inventory_hostname }}"
+      ip: "{{ ansible_facts['default_ipv4']['address'] }}"
+      dns: "server.{{ consul_datacenter }}.{{ consul_domain }}"
+
+  - role: helper
+    when: consul_tls_enabled | bool
+    vars:
+      helper_file_copy_local:
+      - src: "{{ inventory_dir }}/.tls/ca.pem"
+        dst: "{{ consul_tls_dir }}/ca.pem"
+        owner: "{{ consul_user }}"
+        group: "{{ consul_group }}"
+        mode: "0644"
+        notify: "Restart consul"
+      - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}.pem"
+        dst: "{{ consul_tls_dir }}/consul.pem"
+        owner: "{{ consul_user }}"
+        group: "{{ consul_group }}"
+        mode: "0644"
+        notify: "Restart consul"
+      - src: "{{ inventory_dir }}/.tls/{{ inventory_hostname }}-key.pem"
+        dst: "{{ consul_tls_dir }}/consul-key.pem"
+        owner: "{{ consul_user }}"
+        group: "{{ consul_group }}"
+        mode: "0600"
+        notify: "Restart consul"
+
+  - role: helper
+    when: consul_edition == 'enterprise'
+    vars:
+      helper_file_copy_local:
+      - src: "{{ inventory_dir }}/licenses/consul.hclic"
+        dst: "{{ consul_license_dir }}/license.hclic"
+        owner: "{{ consul_user }}"
+        group: "{{ consul_group }}"
+        mode: "0600"
+        notify: "Restart consul"
+
+  - role: consul
+
+  post_tasks:
+  - name: Wait for Consul HTTP API to be ready
+    ansible.builtin.wait_for:
+      host: "127.0.0.1"
+      port: 8500
+      delay: 5
+      timeout: 60
+      state: started
+
+  - name: Display Consul server status
+    ansible.builtin.debug:
+      msg:
+      - "Consul server configured on {{ inventory_hostname }}"
+      - "HTTPS UI available at https://{{ ansible_host }}:8443/ui"

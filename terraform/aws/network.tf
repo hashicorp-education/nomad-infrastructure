@@ -1,0 +1,185 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+# VPC Configuration
+resource "aws_vpc" "nomad_consul_vpc" {
+  cidr_block           = var.vpc_cidr
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+
+  tags = {
+    Name  = "${var.project_name}-vpc"
+    Owner = var.owner
+  }
+}
+
+# Internet Gateway
+resource "aws_internet_gateway" "nomad_consul_igw" {
+  vpc_id = aws_vpc.nomad_consul_vpc.id
+
+  tags = {
+    Name  = "${var.project_name}-igw"
+    Owner = var.owner
+  }
+}
+
+resource "aws_default_route_table" "nomad_consul_route_table" {
+  default_route_table_id = aws_vpc.nomad_consul_vpc.default_route_table_id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.nomad_consul_igw.id
+  }
+
+  tags = {
+    Name  = "${var.project_name}-public-rt"
+    Owner = var.owner
+  }
+}
+resource "aws_subnet" "subnet" {
+  vpc_id                  = aws_vpc.nomad_consul_vpc.id
+  cidr_block              = var.subnet_cidr
+  map_public_ip_on_launch = true # Need this. If false, output does not print public IP
+  availability_zone       = data.aws_availability_zones.available.names[0]
+
+  tags = {
+    Name  = "${var.project_name}-public-subnet"
+    Owner = var.owner
+  }
+}
+
+
+# Data source for availability zones
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
+
+#-------------------------------------------------------------------------------
+# Security Group
+#-------------------------------------------------------------------------------
+
+resource "aws_security_group" "nomad_consul_sg" {
+  name        = "${var.project_name}-sg"
+  description = "Security group for Nomad and Consul cluster managed by Terraform and Ansible"
+  vpc_id      = aws_vpc.nomad_consul_vpc.id
+
+  # SSH access
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = [var.allowed_ssh_cidr]
+    description = "SSH access"
+  }
+
+  # Consul HTTP API and UI (only reachable when consul_tls_enabled: false)
+  ingress {
+    from_port   = 8500
+    to_port     = 8500
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Consul UI and HTTP API (used only when TLS is disabled)"
+  }
+
+  # Consul HTTPS API and UI
+  ingress {
+    from_port   = 8443
+    to_port     = 8443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Consul UI and HTTPS API"
+  }
+
+
+  # Nomad HTTP API and UI
+  ingress {
+    from_port   = 4646
+    to_port     = 4646
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Nomad UI and HTTP API"
+  }
+
+  # Application ports — driven by var.extra_ingress_ports in terraform.tfvars
+  dynamic "ingress" {
+    for_each = var.extra_ingress_ports
+    content {
+      from_port   = ingress.value.port
+      to_port     = ingress.value.port
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+      description = ingress.value.description
+    }
+  }
+
+  # Allow all internal traffic
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    self        = true
+    description = "Allow all internal traffic"
+  }
+
+  # Egress - allow all outbound
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow all outbound traffic"
+  }
+
+
+
+  tags = {
+    Name  = "${var.project_name}-sg"
+    Owner = var.owner
+  }
+}
+
+# Attached only to aws_instance.ingress_clients (see compute.tf), in addition
+# to nomad_consul_sg above. Opens app-facing ports that should be reachable
+# on exactly one designated public node, not every client — see
+# _context/wiki/dedicated-ingress-node-plan.md. Currently just the Consul API
+# Gateway's HTTPS listener; the non-mesh Countdash/HashiCups ports
+# (extra_ingress_ports above) stay on the shared SG since those scenarios
+# have no ingress-node concept and can still land on any client.
+resource "aws_security_group" "ingress_sg" {
+  name        = "${var.project_name}-ingress-sg"
+  description = "App-facing ports reachable only on the dedicated ingress client"
+  vpc_id      = aws_vpc.nomad_consul_vpc.id
+
+  ingress {
+    from_port   = 8447
+    to_port     = 8447
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Consul API Gateway - HTTPS ingress (Countdash listener)"
+  }
+
+  # Second gateway listener, on its own port, so Countdash (8447) and
+  # HashiCups (8448) are reachable simultaneously through the same gateway
+  # job instead of sharing one path-based route that only one app can win.
+  # See gateway-listener.hcl and _context/wiki/dedicated-ingress-node-plan.md.
+  ingress {
+    from_port   = 8448
+    to_port     = 8448
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Consul API Gateway - HTTPS ingress (HashiCups listener)"
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Allow all outbound traffic"
+  }
+
+  tags = {
+    Name  = "${var.project_name}-ingress-sg"
+    Owner = var.owner
+  }
+}

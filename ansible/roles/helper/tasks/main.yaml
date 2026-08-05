@@ -1,0 +1,28 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Helper role main tasks
+
+- name: Include APT package installation
+  ansible.builtin.include_tasks: apt.yaml
+  when: ansible_facts['pkg_mgr'] == "apt"
+
+- name: Include YUM package installation
+  ansible.builtin.include_tasks: yum.yaml
+  when: ansible_facts['pkg_mgr'] == "dnf" or ansible_facts['pkg_mgr'] == "yum"
+
+- name: Include file operations
+  ansible.builtin.include_tasks: file.yaml
+
+- name: Include sync operations
+  ansible.builtin.include_tasks: sync.yaml
+
+- name: Include systemd operations
+  ansible.builtin.include_tasks: systemd.yaml
+
+- name: Print host facts
+  ansible.builtin.debug:
+    var: hostvars[inventory_hostname]
+  when: helper_print_host_facts is true
+
+

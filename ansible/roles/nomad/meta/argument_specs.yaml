@@ -1,0 +1,211 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Nomad role argument specifications (Ansible 2.11+)
+
+argument_specs:
+  main:
+    short_description: Install and configure a Nomad agent
+    description:
+      - Installs the Nomad binary via the hashicorp_release role and writes
+        an HCL agent configuration under nomad_config_dir.
+      - Supports server mode (nomad_server_enabled=true) and client mode
+        (nomad_client_enabled=true).
+      - Optionally enables ACLs, TLS, telemetry, and Consul integration.
+    author:
+      - nomad-infra
+
+    options:
+      nomad_binary_version:
+        type: str
+        required: false
+        default: "2.0.4"
+        description: Nomad release version to install.
+
+      nomad_edition:
+        type: str
+        required: false
+        default: "oss"
+        choices: ["oss", "enterprise"]
+        description: >-
+          When "enterprise", installs the "+ent" release artifact and renders
+          license_path in the server{} block, pointing at a license file
+          distributed by the calling playbook.
+
+      nomad_server_enabled:
+        type: bool
+        required: false
+        default: false
+        description: Enable Nomad server mode.
+
+      nomad_server_bootstrap_expect:
+        type: int
+        required: false
+        default: 3
+        description: Number of servers to wait for before bootstrapping the cluster.
+
+      nomad_client_enabled:
+        type: bool
+        required: false
+        default: false
+        description: Enable Nomad client mode.
+
+      nomad_acl_enabled:
+        type: bool
+        required: false
+        default: false
+        description: Enable the Nomad ACL system.
+
+      nomad_tls_enabled:
+        type: bool
+        required: false
+        default: true
+        description: Enable TLS for Nomad HTTP and RPC.
+
+      nomad_consul_integration_enabled:
+        type: bool
+        required: false
+        default: false
+        description: >-
+          When true, writes a consul { address token } block in the Nomad agent
+          configuration. Set after running consul_nomad_service_discovery.yaml.
+          Requires nomad_consul_agent_token to be set.
+
+      nomad_consul_workload_identity_enabled:
+        type: bool
+        required: false
+        default: false
+        description: >-
+          When true, adds service_identity and task_identity blocks inside the
+          consul block (Nomad servers only, requires Nomad 1.7+).
+          Set after running consul_nomad_workload_identity.yaml.
+          Has no effect unless nomad_consul_integration_enabled is also true.
+
+      nomad_consul_agent_token:
+        type: str
+        required: false
+        default: ""
+        description: >-
+          Consul ACL token SecretID for this Nomad agent.
+          For servers use the SecretID from nomad-consul-server-secret-id.txt;
+          for clients use nomad-consul-client-secret-id.txt.
+          Only used when nomad_consul_integration_enabled is true.
+
+      nomad_consul_address:
+        type: str
+        required: false
+        default: "127.0.0.1:8500"
+        description: Address of the local Consul HTTP API.
+
+      nomad_consul_service_identity_aud:
+        type: str
+        required: false
+        default: "consul.io"
+        description: >-
+          Audience value for the default Consul service workload identity.
+          Must match BoundAudiences in the Consul JWT auth method.
+
+      nomad_consul_service_identity_ttl:
+        type: str
+        required: false
+        default: "1h"
+        description: TTL for the default Consul service workload identity token.
+
+      nomad_consul_task_identity_aud:
+        type: str
+        required: false
+        default: "consul.io"
+        description: >-
+          Audience value for the default Consul task workload identity.
+          Must match BoundAudiences in the Consul JWT auth method.
+
+      nomad_consul_task_identity_ttl:
+        type: str
+        required: false
+        default: "1h"
+        description: TTL for the default Consul task workload identity token.
+
+      nomad_client_use_consul_token:
+        type: bool
+        required: false
+        default: false
+        description: >-
+          When true, sets client.template.use_client_consul_token = true in the
+          Nomad client configuration, allowing template blocks to use the Nomad
+          client agent's own Consul ACL token. Only effective when
+          nomad_consul_integration_enabled is true and
+          nomad_consul_workload_identity_enabled is false (service-discovery
+          scenario). Introduced in Nomad 2.0.4.
+
+      nomad_consul_connect_enabled:
+        type: bool
+        required: false
+        default: false
+        description: >-
+          When true (Nomad clients only), adds grpc_address/grpc_ca_file to the
+          consul{} block so Envoy sidecar proxies can reach Consul's TLS-enabled
+          gRPC xDS listener. Requires Consul agents to have connect.enabled and
+          ports.grpc_tls configured (consul_nomad_service_mesh.yaml).
+
+      nomad_consul_grpc_address:
+        type: str
+        required: false
+        default: "127.0.0.1:8503"
+        description: Address of the local Consul agent's TLS-enabled gRPC listener.
+
+      nomad_consul_grpc_ca_file:
+        type: str
+        required: false
+        default: "{{ nomad_config_dir }}/.tls/ca.crt"
+        description: >-
+          Path to the CA certificate used to verify Consul's gRPC TLS listener.
+          Defaults to the same shared cluster CA already installed for Nomad's
+          own TLS.
+
+      nomad_vault_integration_enabled:
+        type: bool
+        required: false
+        default: false
+        description: >-
+          When true, writes a top-level vault { enabled address } block in the
+          Nomad agent configuration. Set after running vault_servers.yaml and
+          nomad_vault_integration.yaml.
+
+      nomad_vault_workload_identity_enabled:
+        type: bool
+        required: false
+        default: false
+        description: >-
+          When true, adds jwt_auth_backend_path and default_identity to the
+          vault block (requires Nomad 1.7+). This is the only supported mode
+          for Vault integration in this repo. Has no effect unless
+          nomad_vault_integration_enabled is also true.
+
+      nomad_vault_address:
+        type: str
+        required: false
+        default: "https://127.0.0.1:8200"
+        description: >-
+          Address of the Vault cluster this agent talks to. Nomad servers
+          (which run Vault locally) should use their own loopback address;
+          Nomad clients (which do not run Vault) point at a Vault server.
+
+      nomad_vault_jwt_auth_backend_path:
+        type: str
+        required: false
+        default: "jwt-nomad"
+        description: Path of the Vault JWT auth method configured by nomad_vault_integration.yaml.
+
+      nomad_vault_default_identity_aud:
+        type: str
+        required: false
+        default: "vault.io"
+        description: >-
+          Audience value for the default Vault workload identity.
+          Must match bound_audiences in the Vault JWT role.
+
+      nomad_vault_default_identity_ttl:
+        type: str
+        required: false
+        default: "1h"
+        description: TTL for the default Vault workload identity token.

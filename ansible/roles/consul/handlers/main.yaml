@@ -1,0 +1,21 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Consul role handlers
+
+- name: Reload systemd
+  become: true
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart consul
+  become: true
+  ansible.builtin.systemd_service:
+    name: "{{ consul_service_name }}"
+    state: restarted
+
+- name: Enable consul
+  become: true
+  ansible.builtin.systemd_service:
+    name: "{{ consul_service_name }}"
+    enabled: true

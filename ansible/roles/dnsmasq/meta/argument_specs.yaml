@@ -1,0 +1,75 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# dnsmasq role argument specifications (Ansible 2.11+)
+
+argument_specs:
+  main:
+    short_description: Install and configure dnsmasq for Consul DNS forwarding
+    description:
+      - Installs dnsmasq and configures it to forward .global DNS queries to
+        the local Consul agent on port 8600.
+      - On Ubuntu/Debian, disables the systemd-resolved stub listener so
+        dnsmasq can occupy port 53.
+      - Optionally updates /etc/resolv.conf to use dnsmasq as the system
+        resolver.
+    author:
+      - nomad-infra
+
+    options:
+      dnsmasq_upstream_dns_servers:
+        type: list
+        required: false
+        description: >-
+          List of upstream DNS server addresses for non-.global queries.
+          Defaults to the AWS VPC DNS resolver at 169.254.169.253.
+
+      consul_dns_port:
+        type: int
+        required: false
+        default: 8600
+        description: Port on which the local Consul agent serves DNS queries.
+
+      consul_dns_address:
+        type: str
+        required: false
+        default: "127.0.0.1"
+        description: Address of the local Consul agent DNS server.
+
+      dnsmasq_listen_addresses:
+        type: list
+        required: false
+        description: >-
+          List of addresses dnsmasq binds to for incoming DNS queries.
+          Always include 127.0.0.1 for host processes. Add 172.17.0.1 (the
+          Docker bridge gateway) when running Nomad jobs with the Docker task
+          driver so containers can resolve .global names via dnsmasq.
+
+      dnsmasq_cache_size:
+        type: int
+        required: false
+        default: 1000
+        description: Number of DNS entries to cache. 0 disables caching.
+
+      dnsmasq_disable_resolved_stub:
+        type: bool
+        required: false
+        default: true
+        description: >-
+          When true, disables the systemd-resolved DNS stub listener by writing
+          /etc/systemd/resolved.conf.d/no-stub.conf so dnsmasq can bind to port 53.
+
+      dnsmasq_update_resolv_conf:
+        type: bool
+        required: false
+        default: true
+        description: >-
+          When true, rewrites /etc/resolv.conf to use 127.0.0.1 (dnsmasq) as
+          the system nameserver.
+
+      dnsmasq_consul_rev_networks:
+        type: list
+        required: false
+        description: >-
+          List of CIDR ranges for which Consul handles reverse DNS (PTR)
+          lookups. Defaults to the three RFC 1918 blocks.

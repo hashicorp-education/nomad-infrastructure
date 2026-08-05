@@ -1,0 +1,97 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Nomad role tasks
+
+- name: Install Nomad binary
+  ansible.builtin.include_role:
+    name: hashicorp_release
+  vars:
+    hashicorp_release_product_name: "nomad"
+    hashicorp_release_product_version: "{{ nomad_binary_version }}{{ '+ent' if nomad_edition == 'enterprise' else '' }}"
+
+- name: Create Nomad configuration directory
+  become: true
+  ansible.builtin.file:
+    path: "{{ nomad_config_dir }}"
+    state: directory
+    mode: "0700"
+    owner: "{{ nomad_user }}"
+    group: "{{ nomad_group }}"
+
+- name: Create Nomad data directory
+  become: true
+  ansible.builtin.file:
+    path: "{{ nomad_data_dir }}"
+    state: directory
+    mode: "0700"
+    owner: "{{ nomad_user }}"
+    group: "{{ nomad_group }}"
+
+- name: Create Nomad plugin directory
+  become: true
+  ansible.builtin.file:
+    path: "{{ nomad_plugin_dir }}"
+    state: directory
+    mode: "0755"
+    owner: "{{ nomad_user }}"
+    group: "{{ nomad_group }}"
+
+- name: Create Nomad log directory
+  become: true
+  ansible.builtin.file:
+    path: "{{ nomad_log_file | dirname }}"
+    state: directory
+    mode: "0755"
+    owner: "{{ nomad_user }}"
+    group: "{{ nomad_group }}"
+
+- name: Create Nomad configuration file
+  become: true
+  ansible.builtin.template:
+    src: nomad.hcl.j2
+    dest: "{{ nomad_config_dir }}/nomad.hcl"
+    owner: "{{ nomad_user }}"
+    group: "{{ nomad_group }}"
+    mode: "0600"
+  notify: Restart nomad
+
+- name: Slurp rendered nomad.hcl for debug
+  become: true
+  ansible.builtin.slurp:
+    src: "{{ nomad_config_dir }}/nomad.hcl"
+  register: _nomad_hcl_content
+  changed_when: false
+  tags:
+    - debug_config
+
+- name: Print rendered nomad.hcl
+  ansible.builtin.debug:
+    msg: "{{ _nomad_hcl_content.content | b64decode }}"
+    verbosity: 1
+  tags:
+    - debug_config
+
+- name: Create Nomad systemd service file
+  become: true
+  ansible.builtin.template:
+    src: nomad.service.j2
+    dest: "/etc/systemd/system/{{ nomad_service_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Enable nomad
+
+- name: Flush handlers to reload systemd before starting Nomad
+  ansible.builtin.meta: flush_handlers
+
+- name: Ensure Nomad service is started
+  become: true
+  ansible.builtin.systemd_service:
+    name: "{{ nomad_service_name }}"
+    state: started
+    enabled: true
+
+

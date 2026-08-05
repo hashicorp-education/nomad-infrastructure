@@ -1,0 +1,18 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# dnsmasq role handlers
+
+- name: Restart systemd-resolved
+  become: true
+  ansible.builtin.systemd_service:
+    name: systemd-resolved
+    state: restarted
+  listen: Restart systemd-resolved
+
+- name: Restart dnsmasq
+  become: true
+  ansible.builtin.systemd_service:
+    name: dnsmasq
+    state: restarted
+  listen: Restart dnsmasq

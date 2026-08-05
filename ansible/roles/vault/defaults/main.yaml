@@ -1,0 +1,46 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Vault role default variables
+
+vault_user: "root"
+vault_group: "root"
+
+vault_binary_version: "1.20.1"
+
+# vault_node_name is used as the Raft node_id and is written to vault.hcl.
+# vault_servers.yaml overrides this to "vault-server-N" (1-based group index).
+# Falls back to inventory_hostname when not set by a playbook.
+vault_node_name: "{{ inventory_hostname }}"
+
+vault_config_dir: "/etc/vault.d"
+vault_data_dir: "/opt/vault/data"
+
+vault_service_name: "vault"
+
+vault_api_port: 8200
+vault_cluster_port: 8201
+
+vault_ui_enabled: true
+
+# Logging configuration
+vault_log_level: "info"
+
+# TLS configuration
+vault_tls_enabled: true
+
+# Vault 1.20+ requires disable_mlock to be explicitly set (true or false) —
+# it no longer silently defaults, and vault.service fails to start with
+# "disable_mlock must be configured 'true' or 'false'" if omitted. Defaults
+# to false (mlock enabled) since this role already runs Vault as root (see
+# vault_user above) specifically so mlock() succeeds without granting
+# CAP_IPC_LOCK — see ansible/roles/vault/README.md's "Security notes"
+# section. Setting this true would silently give up that protection.
+vault_disable_mlock: false
+
+# Cloud auto-join configuration (AWS) for Raft retry_join.
+# When false, retry_join is built from the private IPs of every other host
+# in the `servers` group (same fallback pattern as the nomad/consul roles).
+vault_cloud_auto_join_enabled: false
+vault_cloud_auto_join_tag_key: "AutoJoinRole"
+vault_cloud_auto_join_tag_value: "server"

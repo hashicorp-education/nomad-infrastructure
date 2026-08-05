@@ -1,0 +1,29 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# Playbook: dnsmasq.yaml
+#
+# Installs and configures dnsmasq on all cluster nodes to forward .global
+# DNS queries to the local Consul agent (port 8600).
+#
+# This enables Consul service discovery via DNS for all processes on the host,
+# including Nomad jobs that look up service addresses using the .global domain.
+#
+# Prerequisites:
+#   - Consul agents must be running on every node before this playbook runs
+#     (consul_servers.yaml and consul_clients.yaml must have completed).
+#
+# Usage:
+#   ansible-playbook -i inventory.ini dnsmasq.yaml
+#
+# Validation (run on any node after deployment):
+#   host consul.service.global
+#   host nomad.service.global
+
+- name: Configure dnsmasq for Consul DNS forwarding
+  hosts: all
+  become: true
+  gather_facts: true
+
+  roles:
+  - role: dnsmasq

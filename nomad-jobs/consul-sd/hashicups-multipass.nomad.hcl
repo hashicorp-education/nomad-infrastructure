@@ -1,0 +1,573 @@
+#-------------------------------------------------------------------------------
+# This file was originally
+# https://github.com/hashicorp-education/learn-consul-nomad-vm/blob/main/shared/jobs/03.hashicups.nomad.hcl
+
+# Modified to remove the private node constraint.
+# nginx task modified.
+#
+# Multipass variant: the AWS-only attr.unique.platform.aws.local-ipv4 and
+# attr.unique.platform.aws.public-hostname node attributes are only
+# fingerprinted via the EC2 metadata service and are absent on local
+# Multipass VMs. Replaced with attr.unique.network.ip-address, the
+# platform-agnostic node attribute Nomad fingerprints on every host, for
+# every group except nginx (the one externally-facing service) - it falls
+# back to attr.unique.platform.aws.public-hostname when var.deployment_platform
+# = "aws", auto-detected and exported by ansible/set-cluster-env.sh so this
+# same file works unmodified on both AWS and Multipass. See
+# hashicups.nomad.hcl for the AWS-only variant and the nginx group below for
+# the full explanation of why this needs a var and can't be fully automatic.
+#-------------------------------------------------------------------------------
+
+
+#-------------------------------------------------------------------------------
+# Job Variables
+#-------------------------------------------------------------------------------
+
+variable "datacenters" {
+  description = "A list of datacenters in the region which are eligible for task placement."
+  type        = list(string)
+  default     = ["*"]
+}
+
+variable "region" {
+  description = "The region where the job should be placed."
+  type        = string
+  default     = "global"
+}
+
+variable "frontend_version" {
+  description = "Docker version tag"
+  default = "v1.0.9"
+}
+
+variable "public_api_version" {
+  description = "Docker version tag"
+  default = "v0.0.7"
+}
+
+variable "payments_version" {
+  description = "Docker version tag"
+  default = "v0.0.16"
+}
+
+variable "product_api_version" {
+  description = "Docker version tag"
+  default = "v0.0.22"
+}
+
+variable "product_api_db_version" {
+  description = "Docker version tag"
+  default = "v0.0.22"
+}
+
+variable "postgres_db" {
+  description = "Postgres DB name"
+  default = "products"
+}
+
+variable "postgres_user" {
+  description = "Postgres DB User"
+  default = "postgres"
+}
+
+variable "postgres_password" {
+  description = "Postgres DB Password"
+  default = "password"
+}
+
+variable "product_api_port" {
+  description = "Product API Port"
+  default = 9090
+}
+
+variable "frontend_port" {
+  description = "Frontend Port"
+  default = 3000
+}
+
+variable "payments_api_port" {
+  description = "Payments API Port"
+  default = 8080
+}
+
+variable "public_api_port" {
+  description = "Public API Port"
+  default = 8081
+}
+
+variable "nginx_tls_port" {
+  description = "Nginx HTTPS Port"
+  default = 443
+}
+
+variable "db_port" {
+  description = "Postgres Database Port"
+  default = 5432
+}
+
+variable "deployment_platform" {
+  description = "Set to \"aws\" so the nginx group's service-catalog entry registers the EC2 public hostname (externally reachable) instead of the private IP. Defaults to \"generic\", which uses attr.unique.network.ip-address - correct for Multipass, and for AWS internal-only access, but not externally reachable on AWS. Shared across every job spec in this repo that needs this fallback (this file, countdash-consul-service-discovery.nomad.hcl, countdash-nomad-service-discovery.nomad.hcl) - set it once via NOMAD_VAR_deployment_platform (see ansible/set-cluster-env.sh, which detects the platform from inventory.ini and exports this automatically) rather than passing -var by hand on every job run."
+  default = "generic"
+}
+
+### ----------------------------------------------------------------------------
+###  Job "HashiCups" (Multipass variant)
+### ----------------------------------------------------------------------------
+# Named "hashicups-multipass", not "hashicups", so this and hashicups.nomad.hcl
+# (the AWS variant) can be deployed to the same cluster at once without one
+# overwriting the other via an in-place job update - the same job-ID
+# collision bug found and fixed for the Countdash job specs (see
+# _context/wiki/countdash-job-id-collision-and-multiarch.md).
+
+job "hashicups-multipass" {
+  type   = "service"
+  region = var.region
+  datacenters = var.datacenters
+
+  ## ---------------------------------------------------------------------------
+  ##  Group "Database"
+  ## ---------------------------------------------------------------------------
+
+  group "db" {
+
+    count = 1
+    shutdown_delay = "10s"
+
+    network {
+      port "db" {
+        static = var.db_port
+      }
+      dns {
+      	servers = ["172.17.0.1"] 
+      }
+    }
+    service {
+        name = "database"
+        provider = "consul"
+        port = "db"
+        address  = attr.unique.network.ip-address
+        check {
+          name      = "Database ready"
+          type      = "script"
+          command   = "/usr/bin/pg_isready"
+          args      = ["-d", "${var.db_port}"]
+          interval  = "5s"
+          timeout   = "2s"
+          on_update = "ignore_warnings"
+          task      = "db"
+        }
+      }
+    
+    # --------------------------------------------------------------------------
+    #  Task "Database"
+    # --------------------------------------------------------------------------
+
+    task "db" {
+      driver = "docker"
+
+      meta {
+        service = "database"
+      }
+      config {
+        image   = "hashicorpdemoapp/product-api-db:${var.product_api_db_version}"
+        ports = ["db"]
+      }
+      env {
+        POSTGRES_DB       = "products"
+        POSTGRES_USER     = "postgres"
+        POSTGRES_PASSWORD = "password"
+      }
+    }
+  }
+
+  ## ---------------------------------------------------------------------------
+  ##  Group "Product API"
+  ## ---------------------------------------------------------------------------
+
+  group "product-api" {
+
+    count = 1
+    shutdown_delay = "10s"
+
+    network {
+      port "product-api" {
+        static = var.product_api_port
+      }
+      dns {
+      	servers = ["172.17.0.1"] 
+      }
+    }
+    service {
+        name = "product-api"
+        provider = "consul"
+        port = "product-api"
+        address  = attr.unique.network.ip-address
+        # DB connectivity check 
+        check {
+          name        = "DB connection ready"
+					type      = "http" 
+          path      = "/health/readyz" 
+					interval  = "5s"
+					timeout   = "5s"
+        }
+
+        # Server ready check
+        check {
+          name        = "Product API ready"
+          type      = "http" 
+          path      = "/health/livez" 
+          interval  = "5s"
+          timeout   = "5s"
+        }
+      }
+    
+    # --------------------------------------------------------------------------
+    #  Task "Product API"
+    # --------------------------------------------------------------------------
+
+    task "product-api" {
+      driver = "docker"
+
+      meta {
+        service = "product-api"
+      }
+      config {
+        image   = "hashicorpdemoapp/product-api:${var.product_api_version}"
+        ports = ["product-api"]
+      }
+      env {
+        DB_CONNECTION = "host=database.service.dc1.global port=${var.db_port} user=${var.postgres_user} password=${var.postgres_password} dbname=${var.postgres_db} sslmode=disable"
+        BIND_ADDRESS = ":${var.product_api_port}"
+      }
+    }
+  }
+
+  ## ---------------------------------------------------------------------------
+  ##  Group "Payments API"
+  ## ---------------------------------------------------------------------------
+
+  group "payments" {
+
+    count = 1
+    shutdown_delay = "10s"
+
+    network {
+      port "payments-api" {
+        static = var.payments_api_port
+      }
+      dns {
+      	servers = ["172.17.0.1"] 
+      }
+    }
+
+    service {
+        name = "payments-api"
+        provider = "consul"
+        port = "payments-api"
+        address  = attr.unique.network.ip-address
+        check {
+          name      = "Payments API ready"
+					type      = "http"
+          path			= "/actuator/health"
+					interval  = "5s"
+					timeout   = "5s"
+        }
+      }
+    
+    # --------------------------------------------------------------------------
+    #  Task "Payments API"
+    # --------------------------------------------------------------------------
+
+    task "payments-api" {
+      driver = "docker"
+
+
+      meta {
+        service = "payments-api"
+      }
+      
+      config {
+        image   = "hashicorpdemoapp/payments:${var.payments_version}"
+        ports = ["payments-api"]
+        mount {
+          type   = "bind"
+          source = "local/application.properties"
+          target = "/application.properties"
+        }
+      }
+      template {
+        data = "server.port=${var.payments_api_port}"
+        destination = "local/application.properties"
+      }
+      resources {
+        memory = 500
+      }
+    }
+  }
+
+  ## ---------------------------------------------------------------------------
+  ##  Group "Public API"
+  ## ---------------------------------------------------------------------------
+
+  group "public-api" {
+
+    count = 1
+    shutdown_delay = "10s"
+
+    network {
+      port "public-api" {
+        static = var.public_api_port
+      }
+      dns {
+      	servers = ["172.17.0.1"] 
+      }
+    }
+    service {
+        name = "public-api"
+        provider = "consul"
+        port = "public-api"
+        address  = attr.unique.network.ip-address
+        check {
+          name      = "Public API ready"
+					type      = "http"
+          path			= "/health"
+					interval  = "5s"
+					timeout   = "5s"
+        }
+      }
+
+    # --------------------------------------------------------------------------
+    #  Task "Public API"
+    # --------------------------------------------------------------------------
+
+    task "public-api" {
+      driver = "docker"
+
+      meta {
+        service = "public-api"
+      }
+      config {
+        image   = "hashicorpdemoapp/public-api:${var.public_api_version}"
+        ports = ["public-api"] 
+      }
+      env {
+        BIND_ADDRESS = ":${var.public_api_port}"
+        PRODUCT_API_URI = "http://product-api.service.dc1.global:${var.product_api_port}"
+        PAYMENT_API_URI = "http://payments-api.service.dc1.global:${var.payments_api_port}"
+      }
+    }
+  }
+
+  ## ---------------------------------------------------------------------------
+  ##  Group "Frontend"
+  ## ---------------------------------------------------------------------------
+
+  group "frontend" {
+    
+    count = 1
+    shutdown_delay = "10s"
+
+    network {
+      port "frontend" {
+        static = var.frontend_port
+      }
+      dns {
+      	servers = ["172.17.0.1"] 
+      }
+    }
+    service {
+        name = "frontend"
+        provider = "consul"
+        port = "frontend"
+        address  = attr.unique.network.ip-address
+        check {
+          name      = "Frontend ready"
+					type      = "http"
+          path      = "/"
+					interval  = "5s"
+					timeout   = "5s"
+        }
+      }
+    
+    # --------------------------------------------------------------------------
+    #  Task "Frontend"
+    # --------------------------------------------------------------------------
+
+    task "frontend" {
+      driver = "docker"
+
+      meta {
+        service = "frontend"
+      }
+      config {
+        image   = "hashicorpdemoapp/frontend:${var.frontend_version}"
+        ports = ["frontend"]
+      }
+      env {
+        NEXT_PUBLIC_PUBLIC_API_URL= "/"
+        NEXT_PUBLIC_FOOTER_FLAG="Frontend instance ${NOMAD_ALLOC_INDEX}"
+        PORT="${var.frontend_port}"
+      }
+    }
+  }
+  
+  ## ---------------------------------------------------------------------------
+  ##  Group "NGINX"
+  ## ---------------------------------------------------------------------------
+
+  group "nginx" {
+
+    count = 1
+    shutdown_delay = "10s"
+
+    network {
+      port "nginx-tls" {
+        static = var.nginx_tls_port
+      }
+      dns {
+      	servers = ["172.17.0.1"] 
+      }
+    }
+    service {
+        name = "nginx"
+        provider = "consul"
+        port = "nginx-tls"
+        # attr.unique.network.ip-address is the platform-agnostic node attribute
+        # Nomad fingerprints on every host - correct as-is on Multipass (no
+        # public/private split; the single bridged NIC IP is already reachable
+        # from the host machine's browser). On AWS this resolves to the
+        # *private* IP, so set var.deployment_platform=aws to register the
+        # public hostname instead (only fingerprinted on AWS via the EC2
+        # metadata service). Don't pass -var by hand for this - source
+        # ansible/set-cluster-env.sh, which detects the platform from
+        # inventory.ini and exports NOMAD_VAR_deployment_platform automatically
+        # (Nomad's CLI reads NOMAD_VAR_<name> exactly like -var <name>=value).
+        #
+        # WHY THIS IS var.* AND NOT meta.* OR attr.* AS THE CONDITION - confirmed
+        # by live testing (see nomad-jobs/consul-sd/countdash-consul-service-discovery.nomad.hcl
+        # for the full test writeup): this ternary's *condition* must be a
+        # var.* value, known at job-submission time - a node-level attr.*/meta.*
+        # condition silently resolves to the wrong (private-IP) branch with no
+        # error, even when genuinely true on that node. If the selected
+        # *branch* doesn't exist on the placed node (e.g. deployment_platform=aws
+        # run against non-AWS infra), Nomad silently registers the literal,
+        # unresolved text "${attr.unique.platform.aws.public-hostname}" as the
+        # address, which then fails the health check below. If you see that,
+        # deployment_platform doesn't match the platform you're actually
+        # deploying to - fix the var/env, not the job spec.
+        address  = var.deployment_platform == "aws" ? attr.unique.platform.aws.public-hostname : attr.unique.network.ip-address
+        check {
+          name           = "NGINX ready"
+					type           = "http"
+          protocol       = "https"
+          tls_skip_verify = true
+          path			     = "/health"
+					interval       = "5s"
+					timeout        = "5s"
+        }
+      }
+
+    # --------------------------------------------------------------------------
+    #  Task "NGINX TLS Init"
+    #
+    #  Generates a self-signed certificate for the nginx HTTPS listener at
+    #  deploy time, writing it to the alloc directory (/alloc/tls), which is
+    #  automatically shared with every task in this group. Runs to completion
+    #  before the "nginx" task starts (non-sidecar prestart hook).
+    # --------------------------------------------------------------------------
+
+    task "nginx-tls-init" {
+      driver = "docker"
+
+      lifecycle {
+        hook    = "prestart"
+        sidecar = false
+      }
+
+      config {
+        image   = "nginx:alpine"
+        command = "sh"
+        args = [
+          "-c",
+          <<-EOT
+          set -e
+          apk add --no-cache openssl
+          mkdir -p /alloc/tls
+          openssl req -x509 -nodes -newkey rsa:2048 \
+            -keyout /alloc/tls/nginx.key \
+            -out /alloc/tls/nginx.crt \
+            -days 365 \
+            -subj "/CN=hashicups.local" \
+            -addext "subjectAltName=DNS:hashicups.local,IP:${NOMAD_IP_nginx_tls}"
+          EOT
+        ]
+      }
+    }
+
+    # --------------------------------------------------------------------------
+    #  Task "NGINX"
+    # --------------------------------------------------------------------------
+
+    task "nginx" {
+      driver = "docker"
+
+      meta {
+        service = "nginx-reverse-proxy"
+      }
+      config {
+        image = "nginx:alpine"
+        ports = ["nginx-tls"]
+        mount {
+          type   = "bind"
+          source = "local/default.conf"
+          target = "/etc/nginx/conf.d/default.conf"
+        }
+      }
+      template {
+        data =  <<EOF
+          proxy_cache_path /var/cache/nginx levels=1:2 keys_zone=STATIC:10m inactive=7d use_temp_path=off;
+
+          # Defer upstream DNS resolution to request time instead of startup.
+          # nginx resolves upstream hostnames at config-parse time when they
+          # appear in upstream{} blocks or bare proxy_pass directives.  Using a
+          # variable in proxy_pass + a resolver directive makes nginx re-resolve
+          # on each request (cached for valid= seconds), so nginx starts
+          # successfully even when Consul services are not yet registered.
+          resolver 172.17.0.1 valid=5s ipv6=off;
+          resolver_timeout 2s;
+
+          server {
+            listen ${var.nginx_tls_port} ssl;
+            server_name {{ env "NOMAD_IP_nginx_tls" }};
+            server_tokens off;
+            ssl_certificate     /alloc/tls/nginx.crt;
+            ssl_certificate_key /alloc/tls/nginx.key;
+            gzip on;
+            gzip_proxied any;
+            gzip_comp_level 4;
+            gzip_types text/css application/javascript image/svg+xml;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host $host;
+            proxy_cache_bypass $http_upgrade;
+            location / {
+              set $frontend_upstream "frontend.service.dc1.global:${var.frontend_port}";
+              proxy_pass http://$frontend_upstream;
+            }
+            location /api {
+              set $public_api_upstream "public-api.service.dc1.global:${var.public_api_port}";
+              proxy_pass http://$public_api_upstream;
+            }
+            location = /health {
+              access_log off;
+              add_header 'Content-Type' 'application/json';
+              return 200 '{"status":"UP"}';
+            }
+          }
+        EOF
+        destination = "local/default.conf"
+      }
+    }
+  }
+}

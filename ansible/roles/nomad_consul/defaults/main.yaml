@@ -1,0 +1,104 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# nomad_consul role default variables
+#
+# This role configures the Consul ACL resources required for Nomad integration.
+# It is split into two independent phases:
+#
+#   Service discovery (service_discovery.yaml):
+#     - ACL policies and tokens for Nomad server and client agents
+#
+#   Workload identity (workload_identity.yaml):
+#     - JWT auth method for Nomad workload identities
+#     - ACL binding rules for service registration and task access
+#     - ACL policy and role for Nomad task workload identities
+#
+# Use nomad_consul_run_service_discovery / nomad_consul_run_workload_identity
+# to control which phases run (both default to true).
+
+# --- Phase control flags ---
+# Set to false to skip the corresponding phase when calling the role directly.
+# nomad_consul_run_service_mesh defaults to false (unlike the other two phases)
+# since it is only relevant to the Option E service mesh scenario.
+nomad_consul_run_service_discovery: true
+nomad_consul_run_workload_identity: true
+nomad_consul_run_service_mesh: false
+
+# --- Consul connection ---
+# Address of the local Consul HTTP API (adjust if TLS is enabled)
+nomad_consul_http_addr: "http://127.0.0.1:8500"
+
+# Path to the Consul binary on the remote server
+nomad_consul_bin_path: "/usr/local/bin/consul"
+
+# OS user that owns Consul directories (must match the consul role's consul_user)
+nomad_consul_user: "consul"
+
+# --- Bootstrap token ---
+# Local file written by consul_acl_bootstrap.yaml containing only the SecretID
+nomad_consul_bootstrap_secret_id_file: "{{ inventory_dir }}/tokens/consul-bootstrap-secret-id.txt"
+
+# --- Idempotency sentinels ---
+# Each phase writes its own sentinel so the two phases can be run independently.
+nomad_consul_sd_bootstrapped_file: "/opt/consul/data/nomad-consul-sd-bootstrapped.true"
+nomad_consul_wi_bootstrapped_file: "/opt/consul/data/nomad-consul-wi-bootstrapped.true"
+
+# Remote staging directory for policy and auth-method files (cleaned up after use)
+nomad_consul_staging_dir: "/tmp/nomad-consul-acl"
+
+# --- Local output files (stored on control machine) ---
+nomad_consul_server_token_output_path: "{{ inventory_dir }}/tokens/nomad-consul-server-token-output.txt"
+nomad_consul_client_token_output_path: "{{ inventory_dir }}/tokens/nomad-consul-client-token-output.txt"
+nomad_consul_server_secret_id_path: "{{ inventory_dir }}/tokens/nomad-consul-server-secret-id.txt"
+nomad_consul_client_secret_id_path: "{{ inventory_dir }}/tokens/nomad-consul-client-secret-id.txt"
+
+# --- Consul ACL policy names ---
+nomad_consul_server_policy_name: "nomad-server-policy"
+nomad_consul_server_policy_description: "Consul ACL policy for Nomad server agents"
+
+nomad_consul_client_policy_name: "nomad-client-policy"
+nomad_consul_client_policy_description: "Consul ACL policy for Nomad client agents"
+
+nomad_consul_tasks_policy_name: "nomad-tasks-policy"
+nomad_consul_tasks_policy_description: "Consul ACL policy for Nomad task workload identities"
+
+# --- Consul ACL token descriptions ---
+nomad_consul_server_token_description: "Consul ACL token for Nomad server agents"
+nomad_consul_client_token_description: "Consul ACL token for Nomad client agents"
+
+# --- Consul JWT auth method ---
+nomad_consul_auth_method_name: "nomad-workloads"
+nomad_consul_auth_method_description: "JWT auth method for Nomad service and task workload identities"
+
+# JWKS URL that Consul servers use to validate Nomad workload identity JWTs.
+# Must be reachable by all Consul servers.  In production, point this to a
+# load balancer in front of multiple Nomad servers.  Defaults to https:// since
+# Nomad's HTTP API is TLS-only when nomad_tls_enabled: true (the default); set
+# this to an http:// URL if Nomad TLS is disabled.
+nomad_consul_jwks_url: >-
+  https://{{ hostvars[groups['servers'][0]]['ansible_facts']['default_ipv4']['address'] }}:4646/.well-known/jwks.json
+
+# PEM-encoded CA certificate Consul uses to verify the TLS connection to
+# nomad_consul_jwks_url. Required when nomad_consul_jwks_url uses https:// with
+# a self-signed certificate (the default). Leave empty to use system CAs, or
+# when nomad_consul_jwks_url uses http://.
+nomad_consul_jwks_ca_cert: ""
+
+# --- Consul ACL binding rules ---
+nomad_consul_service_binding_rule_description: "Nomad workload identities for Consul service registration"
+nomad_consul_tasks_binding_rule_description: "Nomad workload identities for Consul data access by tasks"
+
+# --- Consul ACL role (for tasks in the Nomad default namespace) ---
+nomad_consul_tasks_role_name: "nomad-tasks-default"
+nomad_consul_tasks_role_description: "ACL role for Nomad tasks in the default Nomad namespace"
+
+# --- Service mesh (Option E): API Gateway binding rule ---
+# Idempotency sentinel for the service mesh phase (separate from the workload
+# identity sentinel so the two phases can be run independently).
+nomad_consul_mesh_bootstrapped_file: "/opt/consul/data/nomad-consul-mesh-bootstrapped.true"
+
+# Nomad namespace the API Gateway job runs in. Must match the Nomad namespace
+# created by consul_nomad_service_mesh.yaml (`nomad namespace apply -name ingress`).
+nomad_consul_gateway_namespace: "ingress"
+nomad_consul_gateway_binding_rule_description: "Nomad API Gateway workload identity -> builtin/api-gateway templated policy"

@@ -1,0 +1,31 @@
+{# Copyright (c) HashiCorp, Inc. #}
+{# SPDX-License-Identifier: MPL-2.0 #}
+# Main dnsmasq configuration
+# Managed by Ansible — do not edit manually
+
+# Listen on the configured addresses. Add the Docker bridge gateway
+# (e.g. 172.17.0.1) here when using the Nomad Docker task driver.
+{% for addr in dnsmasq_listen_addresses %}
+listen-address={{ addr }}
+{% endfor %}
+bind-interfaces
+
+# Do not use /etc/resolv.conf for upstream servers;
+# upstream servers are defined explicitly below and in dnsmasq.d/
+no-resolv
+
+{% for server in dnsmasq_upstream_dns_servers %}
+server={{ server }}
+{% endfor %}
+
+# DNS cache
+cache-size={{ dnsmasq_cache_size }}
+
+# Do not forward bare names (names without a dot)
+domain-needed
+
+# Do not forward RFC 1918 reverse lookups to upstream
+bogus-priv
+
+# Increase log verbosity for troubleshooting (remove in production)
+# log-queries

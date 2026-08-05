@@ -1,0 +1,12 @@
+# Copyright (c) HashiCorp, Inc.
+# SPDX-License-Identifier: MPL-2.0
+---
+# TLS role default variables
+
+tls_path: "{{ inventory_dir }}/.tls"
+tls_ca_generate: true
+tls_ca_pem_filename: "ca.pem"
+tls_ca_key_filename: "ca-key.pem"
+tls_self_signed_generate: []
+
+
