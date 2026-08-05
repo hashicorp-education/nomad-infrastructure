@@ -287,7 +287,7 @@ job "hashicups-multipass" {
       }
       
       config {
-        image   = "hashicorpdemoapp/payments:${var.payments_version}"
+        image   = "aimeeu/payments:${var.payments_version}"
         ports = ["payments-api"]
         mount {
           type   = "bind"
